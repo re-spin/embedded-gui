@@ -64,12 +64,20 @@ impl Mask<'_> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RawImage<'a> {
     /// ARGB1555: opaque pixels (bit 15 set) are copied, transparent skipped.
-    Argb1555 { w: u32, h: u32, px: &'a [u16] },
+    /// `stride` is pixels per row of `px` (`w`, or more for a padded sprite
+    /// or a sub-rectangle of a sheet).
+    Argb1555 {
+        w: u32,
+        h: u32,
+        stride: usize,
+        px: &'a [u16],
+    },
     /// One byte per pixel into `palette` (native pixels, so a theme can swap
-    /// it); `transparent` is skipped.
+    /// it); `transparent` is skipped. `stride` as for `Argb1555`.
     Indexed8 {
         w: u32,
         h: u32,
+        stride: usize,
         px: &'a [u8],
         palette: &'a [u16],
         transparent: Option<u8>,
@@ -83,6 +91,14 @@ impl RawImage<'_> {
         match *self {
             Self::Argb1555 { w, h, .. } | Self::Indexed8 { w, h, .. } => (w, h),
             Self::Mask(m) => (m.w, m.h),
+        }
+    }
+
+    /// Source elements per row.
+    pub fn stride(&self) -> usize {
+        match *self {
+            Self::Argb1555 { stride, .. } | Self::Indexed8 { stride, .. } => stride,
+            Self::Mask(m) => m.stride,
         }
     }
 }
@@ -232,7 +248,7 @@ pub(crate) fn blit_fallback<D: DrawTarget<Color = Rgb565>>(
         let row = (py - y) as u32;
         for px in clip.x..clip.right() {
             let col = (px - x) as u32;
-            let i = (row * w + col) as usize;
+            let i = row as usize * img.stride() + col as usize;
             let c = match *img {
                 RawImage::Argb1555 { px: p, .. } => {
                     p.get(i).filter(|p| *p & 0x8000 != 0).map(|p| from555(*p))
@@ -723,7 +739,7 @@ impl RawTarget for Rgb555Surface<'_> {
         match *img {
             RawImage::Argb1555 { px, .. } => {
                 for (py, sy) in rows {
-                    let at = sy * w as usize + sx;
+                    let at = sy * img.stride() + sx;
                     let Some(src) = px.get(at..at + n) else {
                         return;
                     };
@@ -747,7 +763,7 @@ impl RawTarget for Rgb555Surface<'_> {
                     *l = *p & 0x7fff;
                 }
                 for (py, sy) in rows {
-                    let at = sy * w as usize + sx;
+                    let at = sy * img.stride() + sx;
                     let Some(src) = px.get(at..at + n) else {
                         return;
                     };
@@ -841,15 +857,18 @@ mod tests {
         let idx: [u8; 12] = core::array::from_fn(|i| (i % 4) as u8);
         let a1 = [0b1011_0000, 0b0110_0000, 0b1111_0000];
         let imgs = [
+            // Columns 1..4 of 4-wide sheets: stride past the width.
             RawImage::Argb1555 {
-                w: 4,
+                w: 3,
                 h: 3,
-                px: &argb,
+                stride: 4,
+                px: &argb[1..],
             },
             RawImage::Indexed8 {
-                w: 4,
+                w: 3,
                 h: 3,
-                px: &idx,
+                stride: 4,
+                px: &idx[1..],
                 palette: &[0x7fff, 0x7c00, 0x03e0, 0x001f],
                 transparent: Some(2),
             },
@@ -993,6 +1012,7 @@ mod tests {
             let img = RawImage::Indexed8 {
                 w: 37,
                 h: 3,
+                stride: 37,
                 px: &idx,
                 palette: &palette,
                 transparent,
@@ -1350,5 +1370,43 @@ mod tests {
         };
         assert_eq!(lit(false), [0, 6, 12]);
         assert_eq!(lit(true), [0, 6]);
+    }
+
+    #[test]
+    fn strided_blits_read_the_sub_rectangle() {
+        // A 3x2 window at (1, 1) of a 5x4 sheet, against the same pixels packed.
+        let sheet: [u8; 20] = core::array::from_fn(|i| i as u8);
+        let packed = [6u8, 7, 8, 11, 12, 13];
+        let pal: [u16; 20] = core::array::from_fn(|i| 0x0421 * i as u16);
+        let argb: [u16; 20] = core::array::from_fn(|i| 0x8000 | 0x0421 * i as u16);
+        let argb_packed: [u16; 6] = packed.map(|i| argb[i as usize]);
+        let draw = |img: RawImage<'_>| {
+            let mut px = vec![0u16; 6 * 4];
+            Rgb555Surface::new(&mut px, 6, 4).blit(1, 1, &img, Rect::new(0, 0, 6, 4), 0);
+            px
+        };
+        let ix = |px, stride| RawImage::Indexed8 {
+            w: 3,
+            h: 2,
+            stride,
+            px,
+            palette: &pal,
+            transparent: None,
+        };
+        assert_eq!(draw(ix(&sheet[6..], 5)), draw(ix(&packed, 3)));
+        let ar = |px, stride| RawImage::Argb1555 {
+            w: 3,
+            h: 2,
+            stride,
+            px,
+        };
+        assert_eq!(draw(ar(&argb[6..], 5)), draw(ar(&argb_packed, 3)));
+        assert!(
+            draw(ar(&argb_packed, 3))
+                .iter()
+                .filter(|p| **p != 0)
+                .count()
+                == 6
+        );
     }
 }

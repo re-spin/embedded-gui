@@ -264,7 +264,7 @@ static BIG_T255: BigIndexed = BigIndexed { px: &BIG255, t: 255 };
 
 impl CustomWidget for BigIndexed {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
-        let img = RawImage::Indexed8 { w: BW as u32, h: BH as u32, px: self.px, palette: &DAY, transparent: Some(self.t) };
+        let img = RawImage::Indexed8 { w: BW as u32, h: BH as u32, stride: BW, px: self.px, palette: &DAY, transparent: Some(self.t) };
         c.draw_raw_image(r.x, r.y, &img, BLACK)
     }
 }
@@ -301,9 +301,9 @@ impl CustomWidget for Icons {
         let (w, h) = (IW as u32, IW as u32);
         let mask = |format, data, stride| RawImage::Mask(Mask { w, h, stride, format, data });
         let imgs = [
-            (RawImage::Argb1555 { w, h, px: &ARGB }, BLACK),
-            (RawImage::Indexed8 { w, h, px: &IDX, palette: &DAY, transparent: Some(0) }, BLACK),
-            (RawImage::Indexed8 { w, h, px: &IDX, palette: &NIGHT, transparent: Some(0) }, BLACK),
+            (RawImage::Argb1555 { w, h, stride: w as usize, px: &ARGB }, BLACK),
+            (RawImage::Indexed8 { w, h, stride: w as usize, px: &IDX, palette: &DAY, transparent: Some(0) }, BLACK),
+            (RawImage::Indexed8 { w, h, stride: w as usize, px: &IDX, palette: &NIGHT, transparent: Some(0) }, BLACK),
             (mask(MaskFormat::A4, &A4[..], IW / 2), rgb(0xffa000)),
             (mask(MaskFormat::A8, &A8[..], IW), rgb(0x40c0ff)),
             (mask(MaskFormat::A1, &A1[..], IW / 8), WHITE),
