@@ -27,6 +27,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
         s.fill_row = firmware::fill16;
         s.index_row = firmware::index_row;
         s.move_px = firmware::move_px;
+        s.copy_px = firmware::copy_px;
         s.smear_line = firmware::smear_line;
         s.mask1_rows = firmware::mask1_rows;
     }
@@ -366,6 +367,39 @@ impl CustomWidget for A1Text {
     }
 }
 
+/// A 480x90 opaque picture (respin-ui's waveform and band buffers), as
+/// ARGB1555 with every alpha bit set and as X1RGB555.
+const PW: usize = 480;
+const PH: usize = 90;
+const fn photo(alpha: u16) -> [u16; PW * PH] {
+    let mut a = [0u16; PW * PH];
+    let mut i = 0;
+    while i < a.len() {
+        a[i] = alpha | ((i as u32).wrapping_mul(2_654_435_761) >> 17) as u16 & 0x7fff;
+        i += 1;
+    }
+    a
+}
+static PHOTO_ARGB: [u16; PW * PH] = photo(0x8000);
+static PHOTO_RGB: [u16; PW * PH] = photo(0);
+
+/// Blits the 480x90 picture, `true` as `Rgb555`, else as `Argb1555`.
+pub struct Photo(pub bool);
+static PHOTO_A: Photo = Photo(false);
+static PHOTO_R: Photo = Photo(true);
+
+impl CustomWidget for Photo {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let (w, h) = (PW as u32, PH as u32);
+        let img = if self.0 {
+            RawImage::Rgb555 { w, h, stride: PW, px: &PHOTO_RGB }
+        } else {
+            RawImage::Argb1555 { w, h, stride: PW, px: &PHOTO_ARGB }
+        };
+        c.draw_raw_image(r.x, r.y, &img, BLACK)
+    }
+}
+
 // ── screens ──────────────────────────────────────────────────────────────────
 
 /// ~1.2 KB per node slot (eight per-node side tables): keep it static, not on the stack.
@@ -624,6 +658,16 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
         mark(if n == 0 { Mark::Ref } else { Mark::Frame }, px);
     }
 
+    // A 480x90 opaque picture: ARGB1555 (alpha tested per pixel), then
+    // Rgb555 (rows copied).
+    for photo in [&PHOTO_A, &PHOTO_R] {
+        let g = Gui::init_in_place(slot, view);
+        g.add_custom_widget(Rect::new(0, 60, PW as u32, PH as u32), photo, st(None, WHITE, SMALL, pad(0, 0)))?;
+        mark(Mark::Build, px);
+        full(g, px);
+        mark(if photo.0 { Mark::Frame } else { Mark::Ref }, px);
+    }
+
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
@@ -656,6 +700,8 @@ mod firmware {
         fn spike_smear_line(a: *const SmearArgs);
         /// bfin/mask1.S: an A1 mask block up to 16 px wide.
         fn spike_mask1_rows(a: *const Mask1Args);
+        /// copy.S: memcpy, words when dst and src share alignment mod 4.
+        fn cdj_gui_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         /// copy.S: memmove; backwards only when dst lies inside the source.
         fn cdj_gui_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
@@ -781,6 +827,12 @@ mod firmware {
         if src.max(dst).checked_add(n).is_some_and(|end| end <= px.len()) {
             unsafe { cdj_gui_memmove(px.as_mut_ptr().add(dst).cast(), px.as_ptr().add(src).cast(), 2 * n) };
         }
+    }
+
+    /// The firmware's row memcpy; `dst` and `src` are rows of one image size.
+    pub fn copy_px(dst: &mut [u16], src: &[u16]) {
+        let n = dst.len().min(src.len());
+        unsafe { cdj_gui_memcpy(dst.as_mut_ptr().cast(), src.as_ptr().cast(), 2 * n) };
     }
 
     pub fn fill16(row: &mut [u16], v: u16) {

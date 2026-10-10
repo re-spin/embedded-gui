@@ -69,6 +69,7 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | 256-entry palette used as the indexed8 table | 6 raw images (2 indexed8) | 108.6k | 106.2k |
 | `WidgetFlags::OPAQUE` (browse rows flagged) | one row text / row slide | 50.2k / 536k | 43.4k / 526k |
 | | 32-widget tree walk (flag scan) | 32.4k | 33.3k |
+| `RawImage::Rgb555` (opaque rows) + `copy_px` hook (`cdj_gui_memcpy`) | 480x90 opaque picture | 568k (Argb1555) | 101k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

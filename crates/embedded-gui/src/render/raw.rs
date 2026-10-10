@@ -72,6 +72,14 @@ pub enum RawImage<'a> {
         stride: usize,
         px: &'a [u16],
     },
+    /// Opaque X1RGB555: rows are copied as they are, so keep bit 15 clear
+    /// (the fallback ignores it). `stride` as for `Argb1555`.
+    Rgb555 {
+        w: u32,
+        h: u32,
+        stride: usize,
+        px: &'a [u16],
+    },
     /// One byte per pixel into `palette` (native pixels, so a theme can swap
     /// it); `transparent` is skipped. `stride` as for `Argb1555`. A palette
     /// of 256 or more entries is used as is, with no per-blit table copy, so
@@ -92,7 +100,9 @@ pub enum RawImage<'a> {
 impl RawImage<'_> {
     pub fn size(&self) -> (u32, u32) {
         match *self {
-            Self::Argb1555 { w, h, .. } | Self::Indexed8 { w, h, .. } => (w, h),
+            Self::Argb1555 { w, h, .. }
+            | Self::Rgb555 { w, h, .. }
+            | Self::Indexed8 { w, h, .. } => (w, h),
             Self::Mask(m) => (m.w, m.h),
         }
     }
@@ -100,7 +110,9 @@ impl RawImage<'_> {
     /// Source elements per row.
     pub fn stride(&self) -> usize {
         match *self {
-            Self::Argb1555 { stride, .. } | Self::Indexed8 { stride, .. } => stride,
+            Self::Argb1555 { stride, .. }
+            | Self::Rgb555 { stride, .. }
+            | Self::Indexed8 { stride, .. } => stride,
             Self::Mask(m) => m.stride,
         }
     }
@@ -290,6 +302,7 @@ pub(crate) fn blit_fallback<D: DrawTarget<Color = Rgb565>>(
                 RawImage::Argb1555 { px: p, .. } => {
                     p.get(i).filter(|p| *p & 0x8000 != 0).map(|p| from555(*p))
                 }
+                RawImage::Rgb555 { px: p, .. } => p.get(i).map(|p| from555(*p)),
                 RawImage::Indexed8 {
                     px: p,
                     palette,
@@ -333,6 +346,9 @@ pub struct Rgb555Surface<'a> {
     pub index_row: fn(&mut [u16], &[u8], &[u16; 256], Option<u8>),
     /// memmove of `n` pixels from index `src` to `dst` (default: [`move_px`]).
     pub move_px: fn(&mut [u16], usize, usize, usize),
+    /// Copies a same-length row into `dst`: [`RawImage::Rgb555`] rows
+    /// (default: `copy_from_slice`).
+    pub copy_px: fn(&mut [u16], &[u16]),
     /// One line of [`Self::smear_x`]/[`Self::smear_y`]: `(px, start, step,
     /// len, taps)` (default: [`smear_line`]).
     pub smear_line: fn(&mut [u16], usize, usize, usize, u32),
@@ -352,6 +368,7 @@ impl<'a> Rgb555Surface<'a> {
             fill_row: |row, v| row.fill(v),
             index_row: indexed_row,
             move_px,
+            copy_px: <[u16]>::copy_from_slice,
             smear_line,
             mask1_rows,
         }
@@ -777,6 +794,18 @@ impl RawTarget for Rgb555Surface<'_> {
                     }
                 }
             }
+            RawImage::Rgb555 { px, .. } => {
+                for (py, sy) in rows {
+                    let at = sy * img.stride() + sx;
+                    let Some(src) = px.get(at..at + n) else {
+                        return;
+                    };
+                    let copy_px = self.copy_px;
+                    if let Some(d) = self.row(py, c.x, c.right()).get_mut(..n) {
+                        copy_px(d, src);
+                    }
+                }
+            }
             RawImage::Indexed8 {
                 px,
                 palette,
@@ -889,6 +918,7 @@ mod tests {
                 0x8000 | (i as u16 * 0x0421)
             }
         });
+        let rgb = argb.map(|p| p & 0x7fff);
         let idx: [u8; 12] = core::array::from_fn(|i| (i % 4) as u8);
         let a1 = [0b1011_0000, 0b0110_0000, 0b1111_0000];
         let imgs = [
@@ -898,6 +928,12 @@ mod tests {
                 h: 3,
                 stride: 4,
                 px: &argb[1..],
+            },
+            RawImage::Rgb555 {
+                w: 3,
+                h: 3,
+                stride: 4,
+                px: &rgb[1..],
             },
             RawImage::Indexed8 {
                 w: 3,

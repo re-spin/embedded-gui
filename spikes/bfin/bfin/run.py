@@ -47,6 +47,8 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: scroll list one row, set_scroll_offset (render_dirty)",
           "ref: build A1 text", "ref: 40 A1 glyphs 16x16, draw_raw_image each (render)",
           "ref: build A1 text, none", "ref: A1 text widget, no glyphs (render)",
+          "ref: build photo argb1555", "ref: 480x90 opaque Argb1555 (render)",
+          "ref: build photo rgb555", "ref: 480x90 Rgb555 (render)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -171,7 +173,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 13  # Frame and Dirty marks
+    nframes = 14  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -234,6 +236,8 @@ def main():
         "list_scroll_repaint": cyc.get("ref: scroll list one row, set_scroll_offset (render_dirty)"),
         "a1_glyph": (cyc["ref: 40 A1 glyphs 16x16, draw_raw_image each (render)"]
                      - cyc["ref: A1 text widget, no glyphs (render)"]) // 40,
+        "argb1555_480x90": cyc["ref: 480x90 opaque Argb1555 (render)"],
+        "rgb555_480x90": cyc["ref: 480x90 Rgb555 (render)"],
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,
