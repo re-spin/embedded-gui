@@ -46,6 +46,8 @@ use embedded_graphics_core::{
 };
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     font::{FontId, glyph_rows},

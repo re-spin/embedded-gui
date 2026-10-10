@@ -12,7 +12,7 @@ use core::{cell::Cell, mem::MaybeUninit};
 use embedded_graphics_core::pixelcolor::{Rgb555, Rgb565, IntoStorage};
 use embedded_gui::{
     Border, CustomCanvas, CustomWidget, Direct, EdgeInsets, Mask, MaskFormat, RawImage, RawTarget, Rgb555Surface, FontId, GuiContext, GuiError,
-    LinearGradient, QEase, QTween, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
+    LinearGradient, WidgetFlags, QEase, QTween, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
 };
 
 pub const W: u32 = 480;
@@ -539,6 +539,27 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     fb(px).smear_x(detail, 8);
     mark(Mark::Dirty, px);
     fb(px).smear_y(detail, 8);
+    mark(Mark::Dirty, px);
+
+    // Browse list as a ScrollView of 12 rows (no thumb), scrolled one row
+    // by scroll_view_to: copy 7 rows, draw the one that scrolled in.
+    let g = Gui::init_in_place(slot, view);
+    let list = g.add_scroll_view(Rect::new(0, 20, LIST_W, ROWS as u32 * ROW_H), 0, 12 * ROW_H, st(Some(BLACK), WHITE, SMALL, pad(0, 0)))?;
+    g.set_flag(list, WidgetFlags::NO_SCROLLBAR, true)?;
+    for i in 0..12 {
+        let row = g.add_label(Rect::new(0, (i * ROW_H) as i32, LIST_W, ROW_H), ARTISTS[i as usize % ROWS], row_style(i as usize, false))?;
+        g.add_child(list, row)?;
+    }
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    g.clear_dirty();
+    g.scroll_view_to(&mut fb(px), list, ROW_H as i32)?;
+    dirty(g, px);
+    mark(Mark::Dirty, px);
+    g.clear_dirty();
+    g.set_scroll_offset(list, 2 * ROW_H as i32)?;
+    dirty(g, px);
     mark(Mark::Dirty, px);
 
     // The same label with no text: the difference / 21 is the cost per glyph.

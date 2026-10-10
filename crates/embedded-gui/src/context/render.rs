@@ -123,6 +123,70 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.damage(Rect::new(x, r.y, w, r.h))
     }
 
+    #[cfg(feature = "scroll-view")]
+    /// [`Self::set_scroll_offset`] that scrolls the view's pixels already on
+    /// `target` (see [`Self::scroll_rect`]) instead of repainting the view, so
+    /// only the rows that scrolled in (and the thumb) are drawn. The view's
+    /// content must be opaque and not overlapped from outside it.
+    pub fn scroll_view_to<D: crate::render::RawTarget>(
+        &mut self,
+        target: &mut D,
+        id: WidgetId,
+        offset_y: i32,
+    ) -> Result<(), GuiError> {
+        let node = self.node(id).ok_or(GuiError::NotFound)?;
+        let crate::widgets::WidgetKind::ScrollView {
+            offset_y: old,
+            content_h,
+        } = node.kind
+        else {
+            return Err(GuiError::NotFound);
+        };
+        let thumb = !node
+            .flags
+            .contains(crate::widget::WidgetFlags::NO_SCROLLBAR);
+        let inner = crate::block::Block::styled(node.style.resolve(VisualState::Normal));
+        let mut state = crate::state::ScrollState::new(old, content_h);
+        state.set_offset(offset_y);
+        let new = state.offset_y;
+        if new == old {
+            return Ok(());
+        }
+        let (rect, clip) = self.placement(id).ok_or(GuiError::NotFound)?;
+        if let Some(crate::widgets::WidgetKind::ScrollView { offset_y: v, .. }) =
+            self.node_mut(id).map(|n| &mut n.kind)
+        {
+            *v = new;
+        }
+        // Children clip to the whole view, so all of it scrolls; the border
+        // and padding ring around the content stays, and is redrawn.
+        let inner = inner.inner(rect);
+        self.scroll_rect(target, rect.intersection(clip), 0, old - new)?;
+        let ring = [
+            Rect::new(rect.x, rect.y, rect.w, (inner.y - rect.y).max(0) as u32),
+            Rect::new(
+                rect.x,
+                inner.bottom(),
+                rect.w,
+                (rect.bottom() - inner.bottom()).max(0) as u32,
+            ),
+            Rect::new(rect.x, rect.y, (inner.x - rect.x).max(0) as u32, rect.h),
+            Rect::new(
+                inner.right(),
+                rect.y,
+                (rect.right() - inner.right()).max(0) as u32,
+                rect.h,
+            ),
+        ];
+        for r in ring {
+            self.damage(r.intersection(clip))?;
+        }
+        if thumb && content_h > rect.h {
+            self.damage(Rect::new(inner.right() - 3, inner.y, 2, inner.h).intersection(clip))?;
+        }
+        Ok(())
+    }
+
     /// Adds damage; if the tracker is full, falls back to the whole viewport.
     fn damage(&mut self, r: Rect) -> Result<(), GuiError> {
         if self.dirty.add(r).is_err() {

@@ -16,6 +16,8 @@ impl WidgetFlags {
     /// A Label's text ends at the last glyph that fits whole
     /// ([`TextOverflow::WholeGlyphs`](crate::render::TextOverflow::WholeGlyphs)).
     pub const WHOLE_GLYPHS: Self = Self(1 << 7);
+    /// A ScrollView draws no scroll thumb.
+    pub const NO_SCROLLBAR: Self = Self(1 << 8);
 
     pub const fn empty() -> Self {
         Self(0)

@@ -8,6 +8,8 @@ use embedded_graphics_core::{draw_target::DrawTarget, pixelcolor::Rgb565};
 use heapless::String;
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     geometry::Rect,

@@ -42,6 +42,9 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build detail wave 480x90", "ref: detail wave 480x90 (render)",
           "ref: detail wave 3 px scroll_rect + strip (render_dirty)",
           "ref: smear_x 480x90, 8 taps", "ref: smear_y 480x90, 8 taps",
+          "ref: build scroll list 12 rows", "ref: scroll list 300x192 (render)",
+          "ref: scroll list one row, scroll_view_to (render_dirty)",
+          "ref: scroll list one row, set_scroll_offset (render_dirty)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -166,7 +169,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 10  # Frame and Dirty marks
+    nframes = 12  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -225,6 +228,8 @@ def main():
         "detail_full": cyc.get("ref: detail wave 480x90 (render)"),
         "detail_scroll": cyc.get("ref: detail wave 3 px scroll_rect + strip (render_dirty)"),
         "smear_x": cyc.get("ref: smear_x 480x90, 8 taps"), "smear_y": cyc.get("ref: smear_y 480x90, 8 taps"),
+        "list_scroll_copy": cyc.get("ref: scroll list one row, scroll_view_to (render_dirty)"),
+        "list_scroll_repaint": cyc.get("ref: scroll list one row, set_scroll_offset (render_dirty)"),
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

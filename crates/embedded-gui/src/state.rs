@@ -1,4 +1,6 @@
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -112,7 +114,10 @@ impl ScrollState {
     }
 
     pub fn set_offset(&mut self, offset_y: i32) -> bool {
-        let next = offset_y.clamp(0, self.content_h as i32);
+        // Not clamp(): content_h above i32::MAX would make its bounds cross.
+        let next = offset_y
+            .max(0)
+            .min(i32::try_from(self.content_h).unwrap_or(i32::MAX));
         let changed = next != self.offset_y;
         self.offset_y = next;
         changed

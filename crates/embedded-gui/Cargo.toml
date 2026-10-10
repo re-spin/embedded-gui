@@ -21,7 +21,9 @@ exclude = [
 [features]
 default = ["std", "rich-widgets", "macros"]
 std = ["embedded-dsp?/std"]
-rich-widgets = []
+rich-widgets = ["scroll-view"]
+# ScrollView alone, without the other rich widgets' renderers.
+scroll-view = []
 image-decode = ["std"]
 libm = ["dep:libm", "embedded-dsp?/libm"]
 micromath = ["dep:micromath"]

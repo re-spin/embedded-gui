@@ -5,6 +5,8 @@ use embedded_graphics_core::pixelcolor::{Rgb565, RgbColor};
 use heapless::Vec;
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     animation::{Animation, AnimationError, AnimationId, AnimationManager, Easing, PathPoint},
@@ -1105,7 +1107,7 @@ impl<const TRACKS: usize, const BINDINGS: usize> WidgetAnimator<TRACKS, BINDINGS
                 AnimatedProperty::Meter => gui.set_meter_value(binding.widget_id, value)?,
                 #[cfg(feature = "rich-widgets")]
                 AnimatedProperty::SliderValue => gui.set_slider_value(binding.widget_id, value)?,
-                #[cfg(feature = "rich-widgets")]
+                #[cfg(feature = "scroll-view")]
                 AnimatedProperty::ScrollOffsetY => {
                     gui.set_scroll_offset(binding.widget_id, value.round() as i32)?
                 }

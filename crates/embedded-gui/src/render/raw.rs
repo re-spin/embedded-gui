@@ -1210,7 +1210,7 @@ mod tests {
         assert_eq!(red_rect(&px), None);
     }
 
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     #[test]
     fn scroll_view_offsets_and_clips_custom_children() {
         let mut g = tree();
@@ -1414,5 +1414,50 @@ mod tests {
                 .count()
                 == 6
         );
+    }
+
+    #[cfg(feature = "scroll-view")]
+    #[test]
+    fn scroll_view_to_matches_full_redraw() {
+        use crate::{style::Style, widget::WidgetFlags};
+        let build = |thumb: bool| {
+            let mut g = tree();
+            let mut view_style = Style::new().with_background(Some(Rgb565::new(0, 8, 0)));
+            view_style.padding = crate::geometry::EdgeInsets::all(1);
+            let view = g
+                .add_scroll_view(Rect::new(4, 3, 22, 14), 0, 36, view_style)
+                .unwrap();
+            g.set_flag(view, WidgetFlags::NO_SCROLLBAR, !thumb).unwrap();
+            for i in 0..6 {
+                let bg = Rgb565::new(4 * i as u8, 60 - 9 * i as u8, 31 - 5 * i as u8);
+                let row = g
+                    .add_label(
+                        Rect::new(1, 1 + 6 * i, 18, 6),
+                        "",
+                        Style::new().with_background(Some(bg)),
+                    )
+                    .unwrap();
+                g.add_child(view, row).unwrap();
+            }
+            (g, view)
+        };
+        let frame = |g: &Tree| {
+            let mut px = vec![0u16; 40 * 20];
+            g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+                .unwrap();
+            px
+        };
+        for thumb in [false, true] {
+            let (mut g, view) = build(thumb);
+            let mut px = frame(&g);
+            for to in [1, 4, 3, 20, 99, 0] {
+                g.clear_dirty();
+                g.scroll_view_to(&mut Rgb555Surface::new(&mut px, 40, 20), view, to)
+                    .unwrap();
+                g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+                    .unwrap();
+                assert!(px == frame(&g), "thumb {thumb} to {to}");
+            }
+        }
     }
 }

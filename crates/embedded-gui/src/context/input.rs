@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     geometry::Rect,
@@ -320,7 +322,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.tick_theme_transition(dt_ms)?;
         self.haptic_sequencer.tick(dt_ms);
         self.tick_rle_animations(dt_ms)?;
-        #[cfg(feature = "rich-widgets")]
+        #[cfg(feature = "scroll-view")]
         if let Some(mut inertia) = self.inertia_scroll {
             if inertia.velocity.abs() < self.scroll_physics.velocity_threshold {
                 self.inertia_scroll = None;
@@ -350,7 +352,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                 self.inertia_scroll = Some(inertia);
             }
         }
-        #[cfg(feature = "rich-widgets")]
+        #[cfg(feature = "scroll-view")]
         if let Some(mut back) = self.scroll_spring_back {
             let current = self
                 .scroll_offset(back.id)
@@ -739,7 +741,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                 return None;
             }
             origin = (origin.0 - cur.rect.x, origin.1 - cur.rect.y);
-            #[cfg(feature = "rich-widgets")]
+            #[cfg(feature = "scroll-view")]
             if let WidgetKind::ScrollView { offset_y, .. } = parent.kind {
                 origin.1 += offset_y;
             }
@@ -1324,7 +1326,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                 scroll_velocity: 0.0,
             });
             self.inertia_scroll = None;
-            #[cfg(feature = "rich-widgets")]
+            #[cfg(feature = "scroll-view")]
             {
                 self.scroll_spring_back = None;
             }
@@ -1399,7 +1401,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             pressed.gesture_emitted = true;
         }
 
-        #[cfg(feature = "rich-widgets")]
+        #[cfg(feature = "scroll-view")]
         if let Some(scroll_id) = self.scrollable_ancestor(pressed.id) {
             let current = self.scroll_offset(scroll_id).unwrap_or(0);
             let next = if self.scroll_physics.rubber_band {
@@ -1556,7 +1558,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     /// (see `crate::motion::SpringAnimator::rubber_band_snap_back`) and
     /// returns `true`. Otherwise leaves any existing scroll state alone and
     /// returns `false`.
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub(crate) fn maybe_start_scroll_spring_back(&mut self, id: WidgetId) -> bool {
         if !self.scroll_physics.rubber_band {
             return false;
@@ -1587,7 +1589,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
 
     /// Stub for the `rich-widgets`-off build: ScrollView doesn't exist, so
     /// nothing is ever overscrolled.
-    #[cfg(not(feature = "rich-widgets"))]
+    #[cfg(not(feature = "scroll-view"))]
     pub(crate) fn maybe_start_scroll_spring_back(&mut self, _id: WidgetId) -> bool {
         false
     }
@@ -1981,6 +1983,8 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             let dy = (y - cy) as f32;
             if dx != 0.0 || dy != 0.0 {
                 #[cfg(not(feature = "std"))]
+                // Unused where the toolchain's core has these float methods itself.
+                #[allow(unused_imports)]
                 use crate::math::F32Ext as _;
 
                 let angle_rad = dy.atan2(dx);

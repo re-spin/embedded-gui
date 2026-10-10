@@ -1,6 +1,8 @@
 use embedded_graphics_core::pixelcolor::Rgb565;
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

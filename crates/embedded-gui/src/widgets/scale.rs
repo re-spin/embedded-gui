@@ -3,6 +3,8 @@ use embedded_graphics_core::pixelcolor::{Rgb565, RgbColor, WebColors};
 use heapless::String;
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     block::Block,

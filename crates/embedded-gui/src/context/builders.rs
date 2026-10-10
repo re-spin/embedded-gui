@@ -440,7 +440,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_circular_list(rect, items, selected, visible_rows, self.theme.list)
     }
 
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub fn add_scroll_view<S>(
         &mut self,
         rect: Rect,
@@ -463,7 +463,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub fn add_themed_scroll_view(
         &mut self,
         rect: Rect,

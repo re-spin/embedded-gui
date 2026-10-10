@@ -7,6 +7,8 @@
 //! 4. `SpectrumAnalyzerWidget` — Real-time DSP signal & telemetry bar visualizer (`embedded-dsp` integration)
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     geometry::Rect,

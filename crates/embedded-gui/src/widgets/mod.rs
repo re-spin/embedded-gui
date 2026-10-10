@@ -6,6 +6,8 @@ use embedded_graphics_core::pixelcolor::{Rgb565, RgbColor};
 use heapless::String;
 
 #[cfg(not(feature = "std"))]
+// Unused where the toolchain's core has these float methods itself.
+#[allow(unused_imports)]
 use crate::math::F32Ext as _;
 use crate::{
     block::Block,
@@ -289,7 +291,7 @@ pub enum WidgetKind<'a> {
         offset: usize,
         visible_rows: usize,
     },
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     ScrollView {
         offset_y: i32,
         content_h: u32,
@@ -903,11 +905,14 @@ impl<'a> WidgetNode<'a> {
                 style,
                 state,
             ),
-            #[cfg(feature = "rich-widgets")]
+            #[cfg(feature = "scroll-view")]
             WidgetKind::ScrollView {
                 offset_y,
                 content_h,
-            } => render_scroll_view(ctx, rect, offset_y, content_h, style, state),
+            } => {
+                let thumb = !self.flags.contains(WidgetFlags::NO_SCROLLBAR);
+                render_scroll_view(ctx, rect, offset_y, content_h, thumb, style, state)
+            }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Tabs { labels, selected } => {
                 render_tabs(ctx, rect, labels, selected, style, state)
@@ -1306,7 +1311,7 @@ fn default_flags(kind: WidgetKind<'_>) -> WidgetFlags {
             flags.bits() | WidgetFlags::FOCUSABLE.bits() | WidgetFlags::CLICKABLE.bits(),
         );
     }
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     if matches!(kind, WidgetKind::ScrollView { .. }) {
         flags = WidgetFlags::from_bits(flags.bits() | WidgetFlags::SCROLLABLE.bits());
     }
@@ -1544,6 +1549,8 @@ where
         let t = ((value - min) / range).clamp(0.0, 1.0);
 
         #[cfg(not(feature = "std"))]
+        // Unused where the toolchain's core has these float methods itself.
+        #[allow(unused_imports)]
         use crate::math::F32Ext as _;
 
         let angle = t * 2.0 * core::f32::consts::PI - (core::f32::consts::PI / 2.0);
@@ -1962,12 +1969,13 @@ where
     Ok(())
 }
 
-#[cfg(feature = "rich-widgets")]
+#[cfg(feature = "scroll-view")]
 fn render_scroll_view<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
     offset_y: i32,
     content_h: u32,
+    thumb: bool,
     style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
@@ -1978,15 +1986,20 @@ where
     let style = style.resolve(state);
     let block = Block::styled(style);
     block.render(rect, ctx)?;
-    if content_h > rect.h {
+    if thumb && content_h > rect.h {
         let inner = block.inner(rect);
-        let thumb_h = ((inner.h as u64 * inner.h as u64) / content_h.max(1) as u64)
+        // Unsigned with checked divides: no reachable panic.
+        let thumb_h = (u64::from(inner.h) * u64::from(inner.h))
+            .checked_div(u64::from(content_h))
+            .unwrap_or(0)
             .max(4)
-            .min(inner.h as u64) as u32;
-        let max_offset = content_h.saturating_sub(inner.h).max(1) as i32;
+            .min(u64::from(inner.h)) as u32;
+        let max_offset = content_h.saturating_sub(inner.h);
+        let off = (offset_y.max(0) as u32).min(max_offset);
         let y = inner.y
-            + ((inner.h.saturating_sub(thumb_h) as i32 * offset_y.clamp(0, max_offset))
-                / max_offset);
+            + (u64::from(inner.h.saturating_sub(thumb_h)) * u64::from(off))
+                .checked_div(u64::from(max_offset))
+                .unwrap_or(0) as i32;
         ctx.fill_rect(Rect::new(inner.right() - 3, y, 2, thumb_h), style.accent)?;
     }
     Ok(())

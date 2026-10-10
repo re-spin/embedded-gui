@@ -678,7 +678,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub fn set_scroll_offset(&mut self, id: WidgetId, offset_y: i32) -> Result<(), GuiError> {
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
         match node.kind {
@@ -701,7 +701,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     /// rubber-band spring-back tick, where intermediate values are expected
     /// to be outside `[0, content_h]` (that's the overscroll being animated
     /// away) and the spring is guaranteed to converge to a valid boundary.
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub(crate) fn set_scroll_offset_raw(
         &mut self,
         id: WidgetId,
@@ -727,7 +727,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     /// `[0, content_h]` instead of hard-clamping — see
     /// [`crate::state::ScrollState::scroll_by_rubber_band`]. Returns the
     /// resulting offset (which may be outside `[0, content_h]`).
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub fn scroll_by_rubber_band(&mut self, id: WidgetId, delta_y: i32) -> Result<i32, GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -748,7 +748,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
-    #[cfg(feature = "rich-widgets")]
+    #[cfg(feature = "scroll-view")]
     pub fn scroll_offset(&self, id: WidgetId) -> Option<i32> {
         match self.node(id)?.kind {
             WidgetKind::ScrollView { offset_y, .. } => Some(offset_y),
@@ -1724,7 +1724,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             rect.x += parent_node.rect.x;
             rect.y += parent_node.rect.y;
             // A ScrollView's children sit in its content, scrolled by offset_y.
-            #[cfg(feature = "rich-widgets")]
+            #[cfg(feature = "scroll-view")]
             if let WidgetKind::ScrollView { offset_y, .. } = parent_node.kind {
                 rect.y -= offset_y;
             }
