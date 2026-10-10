@@ -2182,6 +2182,27 @@ where
         }
     }
 
+    /// Masks (glyphs) at their top-left corners, all in `tint`: clip and ink
+    /// once for the run.
+    pub fn draw_masks(
+        &mut self,
+        masks: &[(i32, i32, crate::render::Mask<'_>)],
+        tint: Rgb565,
+    ) -> Result<(), D::Error> {
+        let vis = self.visible_rect(self.clip);
+        if vis.is_empty() {
+            return Ok(());
+        }
+        let ink = C::ink(self.target, tint);
+        for (x, y, m) in masks {
+            let clip = vis.intersection(Rect::new(*x, *y, m.w, m.h));
+            if !clip.is_empty() {
+                C::mask(self.target, *x, *y, m, clip, ink)?;
+            }
+        }
+        Ok(())
+    }
+
     /// The damage rect this pass is limited to, if any.
     pub(crate) fn dirty_rect(&self) -> Option<Rect> {
         self.dirty
@@ -2862,6 +2883,16 @@ where
     ) -> Result<(), crate::GuiError> {
         self.ctx
             .draw_raw_image(x, y, img, tint)
+            .map_err(|_| crate::GuiError::Drawing)
+    }
+
+    fn draw_masks(
+        &mut self,
+        masks: &[(i32, i32, crate::render::Mask<'_>)],
+        tint: Rgb565,
+    ) -> Result<(), crate::GuiError> {
+        self.ctx
+            .draw_masks(masks, tint)
             .map_err(|_| crate::GuiError::Drawing)
     }
 

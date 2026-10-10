@@ -287,6 +287,18 @@ pub trait CustomCanvas {
     ) -> Result<(), crate::GuiError> {
         Ok(())
     }
+    /// Masks (glyphs) with their top-left corners, all in `tint`: one call
+    /// for a run of text, so clip and colour are worked out once.
+    fn draw_masks(
+        &mut self,
+        masks: &[(i32, i32, crate::render::Mask<'_>)],
+        tint: embedded_graphics_core::pixelcolor::Rgb565,
+    ) -> Result<(), crate::GuiError> {
+        for (x, y, m) in masks {
+            self.draw_raw_image(*x, *y, &crate::render::RawImage::Mask(*m), tint)?;
+        }
+        Ok(())
+    }
 }
 
 /// A safe `#![no_std]` extension point allowing user code to define

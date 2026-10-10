@@ -432,6 +432,25 @@ impl CustomWidget for FillProbe {
     }
 }
 
+/// [`A1Text`]'s 40 glyphs in one `draw_masks` call.
+pub struct A1TextBatch;
+
+impl CustomWidget for A1TextBatch {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let m = Mask { w: 16, h: 16, stride: 2, format: MaskFormat::A1, data: &GLYPH1 };
+        let mut run = [(0, 0, m); 40];
+        let (mut x, mut y) = (r.x - 5, r.y - 3);
+        for g in run.iter_mut() {
+            *g = (x, y, m);
+            x += 12;
+            if x >= r.x + 235 {
+                (x, y) = (r.x - 5, y + 18);
+            }
+        }
+        c.draw_masks(&run, WHITE)
+    }
+}
+
 // ── screens ──────────────────────────────────────────────────────────────────
 
 /// ~1.2 KB per node slot (eight per-node side tables): keep it static, not on the stack.
@@ -709,6 +728,13 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
         full(g, px);
         mark(Mark::Ref, px);
     }
+
+    // The same 40 glyphs through one draw_masks call.
+    let g = Gui::init_in_place(slot, view);
+    g.add_custom_widget(Rect::new(8, 50, 226, 36), &A1TextBatch, st(None, WHITE, SMALL, pad(0, 0)))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Frame, px);
 
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);

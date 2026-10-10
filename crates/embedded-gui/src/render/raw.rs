@@ -931,6 +931,37 @@ mod tests {
     }
 
     #[test]
+    fn draw_masks_matches_one_call_each() {
+        let a1 = [0b1011_0000, 0b0110_0000, 0b1111_0000];
+        let m = Mask {
+            w: 4,
+            h: 3,
+            stride: 1,
+            format: MaskFormat::A1,
+            data: &a1,
+        };
+        // Clipped on both sides and the bottom, one glyph wholly outside.
+        let run = [(-1, 0, m), (3, 1, m), (7, 3, m), (20, 0, m)];
+        let tint = Rgb565::new(31, 0, 31);
+        for clip in [Rect::new(0, 0, 10, 5), Rect::new(2, 1, 6, 3)] {
+            let mut out = [vec![0x1234u16; 50], vec![0x1234u16; 50]];
+            for (i, px) in out.iter_mut().enumerate() {
+                let mut s = Rgb555Surface::new(px, 10, 5);
+                let mut ctx = RenderCtx::<_, Direct>::with_compositor(&mut s, clip, None);
+                if i == 0 {
+                    ctx.draw_masks(&run, tint).unwrap();
+                } else {
+                    for (x, y, m) in run {
+                        ctx.draw_raw_image(x, y, &RawImage::Mask(m), tint).unwrap();
+                    }
+                }
+            }
+            assert_eq!(out[0], out[1], "{clip:?}");
+            assert!(out[0].iter().any(|p| *p != 0x1234));
+        }
+    }
+
+    #[test]
     fn direct_blits_match_fallback() {
         let argb: [u16; 12] = core::array::from_fn(|i| {
             if i % 3 == 0 {
