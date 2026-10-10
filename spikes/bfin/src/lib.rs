@@ -304,7 +304,7 @@ pub enum Mark {
 /// `slot` is the context's static storage (it is too big for the stack).
 pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Mark, &[u16])) -> Result<(), GuiError> {
     let view = Rect::new(0, 0, W, H);
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     let rows = browse(g)?;
     mark(Mark::Build, px);
     full(g, px);
@@ -324,7 +324,7 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Dirty, px);
 
     // ponytail: the old context is just overwritten; it owns nothing to drop.
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     let frames = player(g)?;
     mark(Mark::Build, px);
     full(g, px);
@@ -347,31 +347,31 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     fb(px).fill_native(view, Rgb555::new(1, 2, 3).into_storage() as u32);
     mark(Mark::Ref, px);
     // One full-screen panel through embedded-gui:
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     g.add_panel(view, st(Some(BLACK), WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
     // One 300x24 row label, 21 glyphs of the 9x18 font:
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), ARTISTS[1], row_style(1, false))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
     // The six raw images alone (no background): blit cost.
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     g.add_custom_widget(Rect::new(44, 60, 6 * 28, IW as u32), &Icons, st(None, WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
     // The waveform alone: 400 1-px column fill_rects through the canvas.
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     g.add_custom_widget(Rect::new(40, 50, 400, 90), &WAVE, st(None, WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
     // The same label with no text: the difference / 21 is the cost per glyph.
-    let g = slot.write(Gui::new(view));
+    let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
     mark(Mark::Build, px);
     full(g, px);

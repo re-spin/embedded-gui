@@ -196,7 +196,9 @@ def main():
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,
-        "text": sections.get(".text", 0), "panic_sites": sum(sites.values()),
+        "text": sections.get(".text", 0), "stack": stack,
+        "ctx_bytes": next((int(f[1], 16) for f in map(str.split, symbols.splitlines())
+                           if len(f) == 4 and "spike_run3GUI" in f[3]), None), "panic_sites": sum(sites.values()),
         "render_softfloat_calls": sum(sf for _, _, sf in marks), "identical": all(same),
         "same_as_base": all(vs_base) if vs_base else None,
     }

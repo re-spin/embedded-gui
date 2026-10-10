@@ -16,16 +16,36 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     GuiContext<'a, NODES, EVENTS, DIRTY>
 {
     pub fn new(viewport: Rect) -> Self {
-        let mut dirty = DirtyTracker::new();
-        let _ = dirty.mark_all(viewport);
-        Self {
-            viewport,
+        let mut slot = core::mem::MaybeUninit::uninit();
+        Self::init_in_place(&mut slot, viewport);
+        // SAFETY: init_in_place wrote every field.
+        unsafe { slot.assume_init() }
+    }
+
+    /// Initialises a context in `slot` (e.g. a `static`), field by field, with
+    /// no context-sized temporary on the stack. Same state as [`GuiContext::new`].
+    pub fn init_in_place(slot: &mut core::mem::MaybeUninit<Self>, viewport: Rect) -> &mut Self {
+        let p = slot.as_mut_ptr();
+        // Writes each field, then names every field in an exhaustive pattern so
+        // a field added without an initialiser here fails to compile.
+        macro_rules! init {
+            ($($field:ident: $value:expr),* $(,)?) => {{
+                // SAFETY: `p` is valid for writes; each field is written once.
+                $(unsafe { core::ptr::addr_of_mut!((*p).$field).write($value) };)*
+                // SAFETY: all fields are initialised (checked by the pattern).
+                let ctx = unsafe { slot.assume_init_mut() };
+                let Self { $($field: _),* } = ctx;
+                ctx
+            }};
+        }
+        let ctx = init! {
+            viewport: viewport,
             widgets: Vec::new(),
             subscriptions: Vec::new(),
             dispatch_policies: Vec::new(),
             class_styles: Vec::new(),
             events: Vec::new(),
-            dirty,
+            dirty: DirtyTracker::new(),
             theme: Theme::default(),
             focus: None,
             active_focus_group: None,
@@ -61,7 +81,9 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             translation_table: None,
             active_language: crate::i18n::LanguageId::EN,
             next_id: 1,
-        }
+        };
+        let _ = ctx.dirty.mark_all(viewport);
+        ctx
     }
 
     pub const fn viewport(&self) -> Rect {
