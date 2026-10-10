@@ -250,6 +250,17 @@ pub trait CustomCanvas {
         color: embedded_graphics_core::pixelcolor::Rgb565,
         font: crate::font::FontId,
     ) -> Result<(), crate::GuiError>;
+    /// `text` laid out in `rect` like a Label: alignment, wrapping, width-fitted
+    /// ellipsis, clipped to `rect`. Canvases without layout draw it at the
+    /// rect's top-left.
+    fn draw_text_in(
+        &mut self,
+        rect: Rect,
+        text: &str,
+        style: crate::render::TextStyle,
+    ) -> Result<(), crate::GuiError> {
+        self.draw_text(text, rect.x, rect.y, style.color, style.font)
+    }
     /// Raw image (see [`RawImage`](crate::render::RawImage)) at `(x, y)`;
     /// `tint` colours a mask. Canvases without raw support draw nothing.
     fn draw_raw_image(

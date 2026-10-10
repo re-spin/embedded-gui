@@ -1081,16 +1081,19 @@ where
                 TextOverflowPolicy::WrapThenEllipsis { .. } => is_last_allowed_line,
                 TextOverflowPolicy::Global(mode) => mode == TextOverflow::Ellipsis,
             };
-            if use_ellipsis
-                && ((!consumed_newline && start + len < char_count) || is_last_allowed_line)
-            {
-                let ellipsis_width = match style.ellipsis {
-                    EllipsisMode::ThreeDots => 3usize,
-                    EllipsisMode::SingleGlyph => 1usize,
-                };
-                if len > ellipsis_width {
-                    draw_len = len - ellipsis_width;
-                }
+            let token = match style.ellipsis {
+                EllipsisMode::ThreeDots => "...",
+                EllipsisMode::SingleGlyph => ".",
+            };
+            // Ellipsis when the line is wider than the rect, or text after it
+            // will not be drawn. The kept glyphs plus the token fit rect.w.
+            let rest_after = start + len + usize::from(consumed_newline) < char_count;
+            let show_token = use_ellipsis
+                && (self.substring_width(text, start, len, font, style.kerning) > rect.w
+                    || (rest_after && (is_last_allowed_line || !consumed_newline)));
+            if show_token {
+                let budget = rect.w.saturating_sub(font.text_width(token));
+                draw_len = fit_len(text, start, len, budget, font, style.kerning);
             }
             let line_w = self.substring_width(text, start, draw_len, font, style.kerning);
             let x = match style.align {
@@ -1109,11 +1112,7 @@ where
                 font,
                 style.kerning,
             )?;
-            if draw_len < len && use_ellipsis {
-                let token = match style.ellipsis {
-                    EllipsisMode::ThreeDots => "...",
-                    EllipsisMode::SingleGlyph => ".",
-                };
+            if show_token {
                 self.draw_text_with_font(x + line_w as i32, y, token, style.color, font)?;
             }
             y += line_step as i32;
@@ -2684,6 +2683,26 @@ fn line_len_at(
     (len, false)
 }
 
+/// How many of chars `start..start + len` fit in `max_w` px, measured the way
+/// `substring_width` measures (one pass over the prefix widths).
+fn fit_len(text: &str, start: usize, len: usize, max_w: u32, font: FontId, kerning: bool) -> usize {
+    let mut width = 0i32;
+    let mut prev = None;
+    let mut fit = 0;
+    for (i, ch) in text.chars().skip(start).take(len).enumerate() {
+        width = width
+            .saturating_add(font.kern(prev, ch))
+            .saturating_add(font.glyph_advance(ch) as i32)
+            .saturating_add(kerning_adjust(prev, ch, kerning));
+        if width > max_w as i32 {
+            break;
+        }
+        fit = i + 1;
+        prev = Some(ch);
+    }
+    fit
+}
+
 fn count_lines(text: &str, max_w: u32, font: FontId, wrap: TextWrap) -> usize {
     if text.is_empty() {
         return 1;
@@ -2753,6 +2772,19 @@ where
         self.ctx
             .fill_rect(rect, color)
             .map_err(|_| crate::GuiError::Drawing)
+    }
+
+    fn draw_text_in(
+        &mut self,
+        rect: Rect,
+        text: &str,
+        style: TextStyle,
+    ) -> Result<(), crate::GuiError> {
+        let old_clip = self.ctx.clip();
+        self.ctx.set_clip(old_clip.intersection(rect));
+        let res = self.ctx.draw_text_in(rect, text, style);
+        self.ctx.set_clip(old_clip);
+        res.map_err(|_| crate::GuiError::Drawing)
     }
 
     fn draw_raw_image(

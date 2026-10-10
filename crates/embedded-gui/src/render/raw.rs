@@ -681,6 +681,48 @@ mod tests {
     }
 
     #[test]
+    fn custom_widgets_clip_and_ellipsis_fits_width() {
+        use crate::{
+            font::FontId,
+            render::{TextOverflow, TextStyle},
+            widget::{CustomCanvas, CustomWidget},
+        };
+        // Overdraws its rect, then lays text out in a 17 px slot with an ellipsis.
+        struct Row;
+        impl CustomWidget for Row {
+            fn render(
+                &self,
+                c: &mut dyn CustomCanvas,
+                r: Rect,
+                _: &crate::style::WidgetStyle,
+                _: crate::style::VisualState,
+            ) -> Result<(), crate::GuiError> {
+                c.fill_rect(
+                    Rect::new(r.x - 2, r.y + 4, r.w + 4, 1),
+                    Rgb565::new(31, 0, 0),
+                )?;
+                let style = TextStyle::new(Rgb565::new(31, 63, 31))
+                    .with_font(FontId::Dynamic(&PROP))
+                    .with_overflow(TextOverflow::Ellipsis);
+                c.draw_text_in(Rect::new(r.x, r.y, 17, 3), "WWWW", style)
+            }
+        }
+        static ROW: Row = Row;
+        let mut gui = crate::GuiContext::<'static, 4, 4, 4>::new(Rect::new(0, 0, 24, 6));
+        gui.add_custom_widget(Rect::new(2, 0, 20, 5), &ROW, crate::style::Style::new())
+            .unwrap();
+        let mut px = vec![0u16; 24 * 6];
+        gui.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 24, 6))
+            .unwrap();
+        // The overdrawn row stays inside x 2..22.
+        let red: vec::Vec<usize> = (0..24).filter(|x| px[4 * 24 + x] != 0).collect();
+        assert_eq!(red, (2..22).collect::<vec::Vec<_>>());
+        // "WWWW" is 24 px; "..." is 6, so one W (6) fits the 11 px left: "W...".
+        let text: vec::Vec<usize> = (0..24).filter(|x| px[*x] != 0).collect();
+        assert_eq!(text, [2, 8, 10, 12]);
+    }
+
+    #[test]
     fn blend555_channels() {
         let (white, red, blue) = (0x7fff, 0x7c00, 0x001f);
         assert_eq!(blend555(0, white, 0), 0);

@@ -835,8 +835,12 @@ impl<'a> WidgetNode<'a> {
 
         match self.kind {
             WidgetKind::Custom(c) => {
+                // Custom drawing stays inside the widget's rect.
+                let old_clip = ctx.clip();
+                ctx.set_clip(old_clip.intersection(rect));
                 let mut canvas = crate::render::RenderCtxCanvas { ctx };
                 let _ = c.widget.render(&mut canvas, rect, style, state);
+                ctx.set_clip(old_clip);
                 Ok(())
             }
             WidgetKind::Panel => render_panel(ctx, rect, style, state),
