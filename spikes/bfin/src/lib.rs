@@ -30,6 +30,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
         s.copy_px = firmware::copy_px;
         s.smear_line = firmware::smear_line;
         s.mask1_rows = firmware::mask1_rows;
+        s.mask1_batch = Some(firmware::mask1_batch);
     }
     s
 }
@@ -768,6 +769,8 @@ mod firmware {
         fn spike_index_key_row(dst: *mut u16, src: *const u8, n: usize, lut: *const u16);
         /// bfin/mask1.S: an A1 mask block up to 16 px wide.
         fn spike_mask1_rows(a: *const Mask1Args);
+        /// bfin/mask1.S: `n` such blocks, registers saved once.
+        fn spike_mask1_batch(a: *const Mask1Args, n: usize);
         /// copy.S: memcpy, words when dst and src share alignment mod 4.
         fn cdj_gui_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         /// copy.S: memmove; backwards only when dst lies inside the source.
@@ -791,6 +794,7 @@ mod firmware {
 
     /// What bfin/mask1.S takes (see its header).
     #[repr(C)]
+    #[derive(Clone, Copy)]
     struct Mask1Args {
         dst: *mut u16,
         dstep: usize,
@@ -807,6 +811,49 @@ mod firmware {
     /// The crate's mask1_rows in assembly for blocks up to 16 px wide (one
     /// or two mask bytes a row); anything else takes the crate's.
     pub fn mask1_rows(px: &mut [u16], at: usize, stride: usize, mask: &Mask<'_>, sub: Rect, ink: u16) {
+        match mask1_args(px, at, stride, mask, sub, ink) {
+            Some(a) => unsafe { spike_mask1_rows(&a) },
+            None => embedded_gui::render::raw::mask1_rows(px, at, stride, mask, sub, ink),
+        }
+    }
+
+    /// The crate's mask1_batch: blocks that fit bfin/mask1.S go 16 to a
+    /// _spike_mask1_batch call; others take the crate's mask1_rows (one ink,
+    /// so the order does not matter).
+    pub fn mask1_batch(px: &mut [u16], stride: usize, clip: Rect, masks: &[(i32, i32, Mask<'_>)], ink: u16) {
+        const N: usize = 16;
+        let mut args = [None::<Mask1Args>; N].map(|_| core::mem::MaybeUninit::<Mask1Args>::uninit());
+        let mut n = 0;
+        for (x, y, m) in masks {
+            let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
+            if c.is_empty() {
+                continue;
+            }
+            let at = c.y as usize * stride + c.x as usize;
+            let sub = Rect::new(c.x - x, c.y - y, c.w, c.h);
+            let Some(a) = mask1_args(px, at, stride, m, sub, ink) else {
+                embedded_gui::render::raw::mask1_rows(px, at, stride, m, sub, ink);
+                continue;
+            };
+            if let Some(slot) = args.get_mut(n) {
+                slot.write(a);
+                n += 1;
+            }
+            if n == N {
+                unsafe { spike_mask1_batch(args.as_ptr().cast(), n) };
+                n = 0;
+            }
+        }
+        if n != 0 {
+            unsafe { spike_mask1_batch(args.as_ptr().cast(), n) };
+        }
+    }
+
+    /// bfin/mask1.S's block for `sub` of `mask` at `px[at]`, if it fits (up
+    /// to 16 px wide, A1, in bounds). Inlined: an Option of the 40-byte
+    /// struct returned through memory costs ~100 cycles a glyph.
+    #[inline(always)]
+    fn mask1_args(px: &mut [u16], at: usize, stride: usize, mask: &Mask<'_>, sub: Rect, ink: u16) -> Option<Mask1Args> {
         // Every term below 2^15 (and `at` below px.len()): the products and
         // sums stay under 2^31, so no 64-bit checked multiplies.
         let fits = || {
@@ -820,10 +867,8 @@ mod firmware {
                 && src + (h - 1) * mask.stride + 1 + two <= mask.data.len();
             ok.then_some((skip as u32, src, two))
         };
-        let Some((skip, src, two)) = fits() else {
-            return embedded_gui::render::raw::mask1_rows(px, at, stride, mask, sub, ink);
-        };
-        let a = Mask1Args {
+        let (skip, src, two) = fits()?;
+        Some(Mask1Args {
             dst: unsafe { px.as_mut_ptr().add(at) },
             dstep: 2 * stride,
             src: unsafe { mask.data.as_ptr().add(src) },
@@ -834,8 +879,7 @@ mod firmware {
             h: sub.h,
             ink: ink as u32,
             src2: unsafe { mask.data.as_ptr().add(src + two) },
-        };
-        unsafe { spike_mask1_rows(&a) };
+        })
     }
 
     /// What bfin/smear.S takes (see its header).

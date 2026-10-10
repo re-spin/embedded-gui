@@ -2,6 +2,10 @@
    wide, C ABI.  The Rust wrapper (spikes/bfin/src/lib.rs,
    firmware::mask1_rows) bounds-checks the block and hands over:
 
+   _spike_mask1_batch(const struct Mask1Args *a, unsigned n) draws n such
+   blocks (n >= 1, consecutive 40-byte structs) with the registers saved
+   once: a run of glyphs in one call.
+
      0  u16 *dst      top-left pixel
      4  int  dstep    bytes between rows
      8  u8  *src      first mask byte of the top row
@@ -24,14 +28,10 @@
    always set and is a plain store, so no load goes past it.  The
    multi-issue stores R0 as it was before the parallel load writes R0.L
    (the simulator agrees: frames match the host).  Writes R0-R3,
-   P0-P2, I0, LC0/1, LT0/1, LB0/1, CC; saves R4-R7, P3-P5.  */
-	.section .text.spike_mask1_rows,"ax",@progbits
-	.align 4
-	.global _spike_mask1_rows
-	.type _spike_mask1_rows, STT_FUNC
-_spike_mask1_rows:
-	[--SP] = (R7:4, P5:3);
-	P2 = R0;
+   P0-P2, I0, LC0/1, LT0/1, LB0/1, CC (the batch also I1, M1);
+   saves R4-R7, P3-P5.  */
+/* One block: P2 = its Mask1Args.  */
+	.macro MASK1_BLOCK
 	P5 = [P2];
 	P3 = [P2 + 4];
 	P1 = [P2 + 8];
@@ -42,8 +42,8 @@ _spike_mask1_rows:
 	R2 = [P2 + 32];
 	P2 = [P2 + 36];
 	LC1 = R4;
-	LSETUP (.Lrow, .Lnext) LC1;
-.Lrow:
+	LSETUP (.Lrow\@, .Lnext\@) LC1;
+.Lrow\@:
 	R0 = B[P1] (Z);
 	R1 = B[P2] (Z);
 	R0 <<= 8;
@@ -53,7 +53,7 @@ _spike_mask1_rows:
 	P1 = P1 + P4;
 	P2 = P2 + P4;
 	CC = R1 == 0;
-	IF CC JUMP .Lnext;
+	IF CC JUMP .Lnext\@;
 	/* R0 = first set pixel, R3 = last - first + 1 */
 	R0 = R1 >> 1;
 	R0.L = SIGNBITS R0;
@@ -70,20 +70,49 @@ _spike_mask1_rows:
 	R3 += -1;
 	CC = R3 == 0;
 	P0 = P5 + (P0 << 1);
-	IF CC JUMP .Llast;
+	IF CC JUMP .Llast\@;
 	LC0 = R3;
 	I0 = P0;
 	R1 = ROT R1 BY 1 || R0 = W[P0] (Z) || NOP;
 	I0 += 2;
-	LSETUP (.Lp0, .Lp1) LC0;
-.Lp0:
+	LSETUP (.Lp0\@, .Lp1\@) LC0;
+.Lp0\@:
 	IF CC R0 = R2;
-.Lp1:
+.Lp1\@:
 	R1 = ROT R1 BY 1 || R0.L = W[I0++] || W[P0++] = R0;
-.Llast:
+.Llast\@:
 	W[P0] = R2;
-.Lnext:
+.Lnext\@:
 	P5 = P5 + P3;
+	.endm
+
+	.section .text.spike_mask1_rows,"ax",@progbits
+	.align 4
+	.global _spike_mask1_rows
+	.type _spike_mask1_rows, STT_FUNC
+_spike_mask1_rows:
+	[--SP] = (R7:4, P5:3);
+	P2 = R0;
+	MASK1_BLOCK
 	(R7:4, P5:3) = [SP++];
 	RTS;
 	.size _spike_mask1_rows, .-_spike_mask1_rows
+
+	.global _spike_mask1_batch
+	.type _spike_mask1_batch, STT_FUNC
+_spike_mask1_batch:
+	[--SP] = (R7:4, P5:3);
+	I1 = R0;
+	R7 = R1;
+	R0 = 40;
+	M1 = R0;
+.Lblock:
+	P2 = I1;
+	I1 += M1;
+	MASK1_BLOCK
+	R7 += -1;
+	CC = R7 == 0;
+	IF !CC JUMP .Lblock (BP);
+	(R7:4, P5:3) = [SP++];
+	RTS;
+	.size _spike_mask1_batch, .-_spike_mask1_batch
