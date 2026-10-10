@@ -307,6 +307,119 @@ impl<'a> Rgb555Surface<'a> {
             .get_mut(base + x0 as usize..base + x1 as usize)
             .unwrap_or_default()
     }
+
+    /// Horizontal box blur inside `rect`, `taps` wide (rounded down to 2, 4,
+    /// 8 or 16; below 2 does nothing), edges clamped. A motion-blur pass for
+    /// horizontal slides: a running sum, one add and one subtract per pixel.
+    pub fn smear_x(&mut self, rect: Rect, taps: u32) {
+        let r = self.bounded(rect);
+        let stride = self.w as usize;
+        for y in r.y..r.bottom() {
+            smear(
+                self.px,
+                y as usize * stride + r.x as usize,
+                1,
+                r.w as usize,
+                taps,
+            );
+        }
+    }
+
+    /// [`Self::smear_x`] down the columns, for vertical scrolls and glides.
+    pub fn smear_y(&mut self, rect: Rect, taps: u32) {
+        let r = self.bounded(rect);
+        let stride = self.w as usize;
+        for x in r.x..r.right() {
+            smear(
+                self.px,
+                r.y as usize * stride + x as usize,
+                stride,
+                r.h as usize,
+                taps,
+            );
+        }
+    }
+}
+
+/// Box blur of the `len` pixels at `start`, `start + step`, ... in place.
+/// The three 5-bit channels are summed side by side (see [`blend555`]) with
+/// room for 32 pixels; a 16-entry ring keeps the originals the window still
+/// needs after they are overwritten.
+fn smear(px: &mut [u16], start: usize, step: usize, len: usize, taps: u32) {
+    match taps {
+        0 | 1 => {}
+        2 | 3 => smear_n::<1>(px, start, step, len),
+        4..=7 => smear_n::<2>(px, start, step, len),
+        8..=15 => smear_n::<3>(px, start, step, len),
+        _ => smear_n::<4>(px, start, step, len),
+    }
+}
+
+/// [`smear`] over `1 << SHIFT` taps.
+fn smear_n<const SHIFT: u32>(px: &mut [u16], start: usize, step: usize, len: usize) {
+    const SPREAD: u32 = 0x03e0_7c1f;
+    let spread = |p: u16| (p as u32 | (p as u32) << 16) & SPREAD;
+    let shift = SHIFT;
+    let Some(last) = len.checked_sub(1) else {
+        return;
+    };
+    // One bounds check for the whole line, then pointer walks.
+    if last
+        .checked_mul(step)
+        .and_then(|o| o.checked_add(start))
+        .is_none_or(|end| end >= px.len())
+    {
+        return;
+    }
+    let half = 1usize << (shift - 1);
+    if len <= half {
+        // ponytail: a line no longer than half the window is left as is.
+        return;
+    }
+    let pack = |sum: u32| {
+        let m = (sum >> shift) & SPREAD;
+        (m | m >> 16) as u16
+    };
+    // SAFETY: every pointer below is `base + start + k * step` with k <= last
+    // (inside `px` by the check above), and only dereferenced then.
+    unsafe {
+        let p = px.as_mut_ptr().add(start);
+        let at = |k: usize| *p.add(k.min(last) * step);
+        let (first, end) = (spread(at(0)), spread(at(last)));
+        // Window [k - half, k + half) with the edges repeated. Output k is
+        // stored at k - half, whose original the window has just dropped, so
+        // no copy of the line is needed; the line shifts back at the end.
+        let mut sum = first * half as u32 + (0..half).map(|k| spread(at(k))).sum::<u32>();
+        let mut head = [0u16; 8];
+        // Only dereferenced inside the line (k + half < len), so wrapping.
+        let mut lead = p.wrapping_add(2 * half * step);
+        for (k, h) in head.iter_mut().take(half).enumerate() {
+            *h = pack(sum);
+            sum = sum + spread(at(k + half)) - first;
+        }
+        // k in half..len - half: lead and trail both inside the line.
+        let mut trail = p;
+        for _ in half..len - half {
+            let t = spread(*trail);
+            *trail = pack(sum);
+            sum = sum + spread(*lead) - t;
+            lead = lead.wrapping_add(step);
+            trail = trail.add(step);
+        }
+        for _ in (len - half).max(half)..len {
+            let t = spread(*trail);
+            *trail = pack(sum);
+            sum = sum + end - t;
+            trail = trail.wrapping_add(step);
+        }
+        // Outputs half..len sit at 0..len - half: move them up, then the head.
+        for k in (0..len - half).rev() {
+            *p.add((k + half) * step) = *p.add(k * step);
+        }
+        for (k, h) in head.iter().take(half).enumerate() {
+            *p.add(k * step) = *h;
+        }
+    }
 }
 
 #[inline]
@@ -1150,5 +1263,65 @@ mod tests {
             g.render_dirty_with::<_, Direct>(&mut s).unwrap();
             assert!(px == frame(&g), "dx {dx} dy {dy}");
         }
+    }
+
+    #[test]
+    fn smear_matches_box_reference() {
+        // Reference: per-channel box average over [k - n/2, k + n/2), clamped.
+        fn reference(line: &[u16], n: usize) -> vec::Vec<u16> {
+            let at = |i: isize| line[i.clamp(0, line.len() as isize - 1) as usize] as u32;
+            (0..line.len() as isize)
+                .map(|k| {
+                    let h = n as isize / 2;
+                    let ch = |sh: u32| {
+                        ((k - h..k + h).map(|i| (at(i) >> sh) & 31).sum::<u32>() / n as u32) << sh
+                    };
+                    (ch(0) | ch(5) | ch(10)) as u16
+                })
+                .collect()
+        }
+        let (w, h) = (23usize, 19usize);
+        let src: vec::Vec<u16> = (0..w * h)
+            .map(|i| (i as u32).wrapping_mul(2_654_435_761) as u16 & 0x7fff)
+            .collect();
+        for (r, n) in [2, 4, 8, 16].into_iter().flat_map(|n| {
+            [
+                (Rect::new(2, 1, 19, 17), n),
+                (Rect::new(5, 3, n / 2 + 1, n / 2 + 1), n),
+                (Rect::new(1, 2, n + 1, 15), n),
+            ]
+        }) {
+            let (rw, rh) = (r.w as usize, r.h as usize);
+            let (mut a, mut b) = (src.clone(), src.clone());
+            Rgb555Surface::new(&mut a, w as u32, h as u32).smear_x(r, n as u32);
+            Rgb555Surface::new(&mut b, w as u32, h as u32).smear_y(r, n as u32);
+            for y in 0..h {
+                for x in 0..w {
+                    let inside = r.contains(x as i32, y as i32);
+                    let (rx, ry) = (r.x as usize, r.y as usize);
+                    let (want_a, want_b) = if inside {
+                        let row: vec::Vec<u16> = (rx..rx + rw).map(|x| src[y * w + x]).collect();
+                        let col: vec::Vec<u16> = (ry..ry + rh).map(|y| src[y * w + x]).collect();
+                        (
+                            reference(&row, n as usize)[x - rx],
+                            reference(&col, n as usize)[y - ry],
+                        )
+                    } else {
+                        (src[y * w + x], src[y * w + x])
+                    };
+                    assert_eq!(a[y * w + x], want_a, "x n={n} ({x},{y})");
+                    assert_eq!(b[y * w + x], want_b, "y n={n} ({x},{y})");
+                }
+            }
+        }
+        // taps < 2, an empty rect and lines up to half the window leave the
+        // frame alone.
+        let r = Rect::new(2, 1, 19, 17);
+        let mut c = src.clone();
+        let mut s = Rgb555Surface::new(&mut c, w as u32, h as u32);
+        s.smear_x(r, 1);
+        s.smear_y(Rect::new(30, 0, 5, 5), 8);
+        s.smear_x(Rect::new(0, 0, 4, 4), 8);
+        assert!(c == src);
     }
 }

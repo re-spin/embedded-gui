@@ -534,6 +534,11 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     g.scroll_rect(&mut fb(px), detail, -3, 0)?;
     dirty(g, px);
     mark(Mark::Dirty, px);
+    // Motion blur post-passes over the same 480x90, 8 taps.
+    fb(px).smear_x(detail, 8);
+    mark(Mark::Dirty, px);
+    fb(px).smear_y(detail, 8);
+    mark(Mark::Ref, px);
 
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
