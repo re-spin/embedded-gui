@@ -12,7 +12,7 @@ extern const uint32_t sf_n;
 
 #define STACK_PAINT 0xF000u
 static uint16_t fb[480 * 234];
-static uint32_t out[3 + 3 * 32 + 64];
+static uint32_t out[3 + 3 * 128 + 64]; /* marks: run.py LABELS (overflow lands in fb) */
 static unsigned n;
 static uint32_t last, last_sf;
 
