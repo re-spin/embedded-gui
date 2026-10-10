@@ -32,6 +32,8 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "player: frames digits (render_dirty)", "player: 6 raw images 24x24 (render_dirty)", "ref: raw fill 480x234 (no embedded-gui)",
           "ref: build 1 panel", "ref: 1 full-screen panel (render)", "ref: build 1 label",
           "ref: 1 row label, 21 glyphs 9x18 (render)", "ref: build icons", "ref: 6 raw images 24x24 alone (render)",
+          "ref: build big indexed8", "ref: 400x90 indexed8, 70% transparent index 0 (render)",
+          "ref: build big indexed8 (255)", "ref: 400x90 indexed8, 70% transparent index 255 (render)",
           "ref: build wave", "ref: waveform alone, 400 column fill_rects (render)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
@@ -203,6 +205,8 @@ def main():
         "player_full": cyc["player: full frame"], "digits": cyc["player: frames digits (render_dirty)"],
         "images": cyc.get("ref: 6 raw images 24x24 alone (render)"),
         "wave": cyc.get("ref: waveform alone, 400 column fill_rects (render)"),
+        "indexed_t0": cyc.get("ref: 400x90 indexed8, 70% transparent index 0 (render)"),
+        "indexed_t255": cyc.get("ref: 400x90 indexed8, 70% transparent index 255 (render)"),
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

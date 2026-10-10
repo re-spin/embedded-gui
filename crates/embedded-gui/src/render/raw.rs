@@ -267,6 +267,9 @@ pub struct Rgb555Surface<'a> {
     pub h: u32,
     /// Fills a row slice with one pixel value.
     pub fill_row: fn(&mut [u16], u16),
+    /// One indexed8 row: `dst[i] = lut[src[i]]`, leaving `dst[i]` where
+    /// `src[i]` is the transparent index (default: [`indexed_row`]).
+    pub index_row: fn(&mut [u16], &[u8], &[u16; 256], Option<u8>),
 }
 
 impl<'a> Rgb555Surface<'a> {
@@ -276,6 +279,7 @@ impl<'a> Rgb555Surface<'a> {
             w,
             h,
             fill_row: |row, v| row.fill(v),
+            index_row: indexed_row,
         }
     }
 
@@ -310,6 +314,66 @@ pub fn blend555(dst: u16, src: u16, a: u32) -> u16 {
     let (d, s) = ((d | d << 16) & SPREAD, (s | s << 16) & SPREAD);
     let m = ((d * (32 - a) + s * a) >> 5) & SPREAD;
     (m | m >> 16) as u16 & 0x7fff
+}
+
+/// One indexed8 row through `lut`. With a transparent index, runs of it are
+/// skipped four pixels at a time (one word compare). Kept out of `blit` so
+/// the loop gets the registers.
+#[inline(never)]
+pub fn indexed_row(row: &mut [u16], src: &[u8], lut: &[u16; 256], transparent: Option<u8>) {
+    let Some(t) = transparent else {
+        for (d, s) in row.iter_mut().zip(src) {
+            *d = lut[*s as usize];
+        }
+        return;
+    };
+    let one = |d: &mut u16, s: u8| {
+        if s != t {
+            *d = lut[s as usize];
+        }
+    };
+    let n = row.len().min(src.len());
+    // ponytail: short rows (24 px icons) don't repay the word loop's setup;
+    // 32 is a guess between the bench's 24 px and 400 px cases, not tuned.
+    if n < 32 {
+        for (d, s) in row.iter_mut().zip(src) {
+            let keep = ((*s != t) as u16).wrapping_neg();
+            *d = (*d & !keep) | (lut[*s as usize] & keep);
+        }
+        return;
+    }
+    // Equal lengths, so the word-aligned middle and tail line up with the row.
+    let (Some(row), Some(src)) = (row.get_mut(..n), src.get(..n)) else {
+        return;
+    };
+    // Pixels up to the first 4-aligned source byte, then whole words (one
+    // aligned load and compare per 4 px), then the tail. Explicit, because
+    // align_to may legally return no middle at all (and does under codegen_gcc).
+    let lead = ((src.as_ptr() as usize).wrapping_neg() & 3).min(n);
+    let quads = (n - lead) / 4;
+    let all_t = u32::from_ne_bytes([t; 4]);
+    for (d, s) in row.iter_mut().zip(src).take(lead) {
+        one(d, *s);
+    }
+    for q in 0..quads {
+        let at = lead + 4 * q;
+        // SAFETY: at + 4 <= n == src.len(), and src.as_ptr() + at is 4-aligned.
+        let w = unsafe { src.as_ptr().add(at).cast::<u32>().read() };
+        if w == all_t {
+            continue;
+        }
+        if let Some([d0, d1, d2, d3]) = row.get_mut(at..at + 4) {
+            let [s0, s1, s2, s3] = w.to_ne_bytes();
+            one(d0, s0);
+            one(d1, s1);
+            one(d2, s2);
+            one(d3, s3);
+        }
+    }
+    let done = lead + 4 * quads;
+    for (d, s) in row.iter_mut().zip(src).skip(done) {
+        one(d, *s);
+    }
 }
 
 impl OriginDimensions for Rgb555Surface<'_> {
@@ -481,16 +545,13 @@ impl RawTarget for Rgb555Surface<'_> {
                 for (l, p) in lut.iter_mut().zip(palette) {
                     *l = *p & 0x7fff;
                 }
-                let t = transparent.map_or(256, |t| t as usize);
                 for (py, sy) in rows {
                     let at = sy * w as usize + sx;
                     let Some(src) = px.get(at..at + n) else {
                         return;
                     };
-                    for (d, s) in self.row(py, c.x, c.right()).iter_mut().zip(src) {
-                        let keep = ((*s as usize != t) as u16).wrapping_neg();
-                        *d = (*d & !keep) | (lut[*s as usize] & keep);
-                    }
+                    let index_row = self.index_row;
+                    index_row(self.row(py, c.x, c.right()), src, &lut, transparent);
                 }
             }
             RawImage::Mask(m) if m.format == MaskFormat::A1 => self.mask1(x, y, &m, c, tint),
@@ -720,6 +781,42 @@ mod tests {
         // "WWWW" is 24 px; "..." is 6, so one W (6) fits the 11 px left: "W...".
         let text: vec::Vec<usize> = (0..24).filter(|x| px[*x] != 0).collect();
         assert_eq!(text, [2, 8, 10, 12]);
+    }
+
+    #[test]
+    fn indexed_rows_match_fallback_at_every_alignment() {
+        // 37 px rows with transparent runs, drawn at shifted clips so the word
+        // loop starts at each source alignment.
+        let idx: [u8; 37 * 3] =
+            core::array::from_fn(|i| if (i / 5) % 3 == 0 { 0 } else { (i % 4) as u8 });
+        let palette = [0x7fff, 0x7c00, 0x03e0, 0x001f];
+        for transparent in [Some(0), None] {
+            let img = RawImage::Indexed8 {
+                w: 37,
+                h: 3,
+                px: &idx,
+                palette: &palette,
+                transparent,
+            };
+            for x0 in 0..4 {
+                let clip = Rect::new(x0, 0, 40 - x0 as u32, 3);
+                let mut out = [vec![0x1234u16; 40 * 3], vec![0x1234u16; 40 * 3]];
+                for (i, px) in out.iter_mut().enumerate() {
+                    let mut s = Rgb555Surface::new(px, 40, 3);
+                    let tint = Rgb565::new(0, 0, 0);
+                    if i == 0 {
+                        RenderCtx::<_, Direct>::with_compositor(&mut s, clip, None)
+                            .draw_raw_image(1, 0, &img, tint)
+                            .unwrap();
+                    } else {
+                        RenderCtx::with_dirty(&mut s, clip, clip)
+                            .draw_raw_image(1, 0, &img, tint)
+                            .unwrap();
+                    }
+                }
+                assert_eq!(out[0], out[1], "{transparent:?} x0 {x0}");
+            }
+        }
     }
 
     #[test]

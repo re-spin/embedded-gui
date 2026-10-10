@@ -25,6 +25,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
     #[cfg(target_os = "none")]
     {
         s.fill_row = firmware::fill16;
+        s.index_row = firmware::index_row;
     }
     s
 }
@@ -197,6 +198,51 @@ static A1: [u8; IW * IW / 8] = {
     a
 };
 
+/// A waveform-like 400x90 indexed8 picture, ~70% transparent (index 0).
+const BW: usize = 400;
+const BH: usize = 90;
+static BIG: [u8; BW * BH] = {
+    let mut a = [0u8; BW * BH];
+    let mut i = 0;
+    while i < a.len() {
+        let (x, y) = (i % BW, i / BW);
+        let h = (x * 7) % 28;
+        if y.abs_diff(BH / 2) < h {
+            a[i] = 1 + (y % 3) as u8;
+        }
+        i += 1;
+    }
+    a
+};
+
+/// `BIG` with 255 as the transparent index (the firmware's keyed asm row).
+static BIG255: [u8; BW * BH] = {
+    let mut a = BIG;
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] == 0 {
+            a[i] = 255;
+        }
+        i += 1;
+    }
+    a
+};
+
+/// Blits a 400x90 indexed8 picture with transparent index `t`.
+pub struct BigIndexed {
+    pub px: &'static [u8; BW * BH],
+    pub t: u8,
+}
+static BIG_T0: BigIndexed = BigIndexed { px: &BIG, t: 0 };
+static BIG_T255: BigIndexed = BigIndexed { px: &BIG255, t: 255 };
+
+impl CustomWidget for BigIndexed {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let img = RawImage::Indexed8 { w: BW as u32, h: BH as u32, px: self.px, palette: &DAY, transparent: Some(self.t) };
+        c.draw_raw_image(r.x, r.y, &img, BLACK)
+    }
+}
+
 impl CustomWidget for Icons {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
         let (w, h) = (IW as u32, IW as u32);
@@ -364,6 +410,15 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
+    // A 400x90 indexed8 picture, 70% transparent, alone: transparent index 0
+    // (Rust row), then 255 (firmware keyed asm row on Blackfin).
+    for big in [&BIG_T0, &BIG_T255] {
+        let g = Gui::init_in_place(slot, view);
+        g.add_custom_widget(Rect::new(40, 50, BW as u32, BH as u32), big, st(None, WHITE, SMALL, pad(0, 0)))?;
+        mark(Mark::Build, px);
+        full(g, px);
+        mark(Mark::Ref, px);
+    }
     // The waveform alone: 400 1-px column fill_rects through the canvas.
     let g = Gui::init_in_place(slot, view);
     g.add_custom_widget(Rect::new(40, 50, 400, 90), &WAVE, st(None, WHITE, SMALL, pad(0, 0)))?;
@@ -394,6 +449,21 @@ mod firmware {
         /// cdj-2000nxs-mods rust/gui/presentation/asm/copy.S: 32-bit stores in a
         /// hardware loop, the firmware's row fill.
         fn cdj_gui_fill16(dst: *mut u16, value: u16, count: usize) -> *mut u16;
+        /// copy.S: dst[i] = table[src[i]], two pixels an iteration; with key
+        /// nonzero, index 255 leaves dst[i] as it is.
+        fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
+    }
+
+    /// The firmware's indexed row for opaque pictures and transparent index
+    /// 255; any other transparent index takes the crate's row.
+    pub fn index_row(row: &mut [u16], src: &[u8], lut: &[u16; 256], transparent: Option<u8>) {
+        let key = match transparent {
+            None => 0,
+            Some(255) => 1,
+            Some(_) => return embedded_gui::render::raw::indexed_row(row, src, lut, transparent),
+        };
+        let n = row.len().min(src.len());
+        unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), key) };
     }
 
     pub fn fill16(row: &mut [u16], v: u16) {
