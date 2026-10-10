@@ -77,8 +77,8 @@ pub use adapter::{ColorConvertedDrawTarget, DrawTargetColorExt};
 pub use animation::{
     Animation, AnimationError, AnimationHandlers, AnimationId, AnimationManager,
     AnimationManagerCallbacks, AnimationState, Easing, InertiaAnimator, PathAnimator, PathPoint,
-    RepeatMode, SPRING_TOLERANCE_DISTANCE, SPRING_TOLERANCE_VELOCITY, SpringAnimator, Timer, Tween,
-    apply_easing,
+    Q16_ONE, QEase, QTween, RepeatMode, SPRING_TOLERANCE_DISTANCE, SPRING_TOLERANCE_VELOCITY,
+    SpringAnimator, Timer, Tween, apply_easing, ease_q16,
 };
 pub use animation_timeline::{
     AnimationGroup, AnimationSequence, ComposedAnimation, ComposedAnimationCallbacks,

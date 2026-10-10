@@ -28,7 +28,8 @@ NM, OBJDUMP = (TC / f"binutils-bfin/bin/bfin-elf-{t}" for t in ("nm", "objdump")
 FB = 480 * 234 * 2
 MHZ = 393
 LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dirty)",
-          "browse: selection 0->1 (render_dirty, 2 rows)", "player: build", "player: full frame",
+          "browse: selection 0->1 (render_dirty, 2 rows)",
+          "browse: row slide 120->0 px, 120 ms OutCubic QTween (8 render_dirty)", "player: build", "player: full frame",
           "player: frames digits (render_dirty)", "player: 6 raw images 24x24 (render_dirty)", "ref: raw fill 480x234 (no embedded-gui)",
           "ref: build 1 panel", "ref: 1 full-screen panel (render)", "ref: build 1 label",
           "ref: 1 row label, 21 glyphs 9x18 (render)", "ref: build icons", "ref: 6 raw images 24x24 alone (render)",
@@ -156,7 +157,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 6  # Frame and Dirty marks
+    nframes = 7  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -203,6 +204,7 @@ def main():
         "opt": opt,
         "browse_full": cyc["browse: full frame"], "row_text": cyc["browse: 1 row text (render_dirty)"],
         "selection": cyc["browse: selection 0->1 (render_dirty, 2 rows)"],
+        "slide": cyc["browse: row slide 120->0 px, 120 ms OutCubic QTween (8 render_dirty)"],
         "player_full": cyc["player: full frame"], "digits": cyc["player: frames digits (render_dirty)"],
         "images": cyc.get("ref: 6 raw images 24x24 alone (render)"),
         "wave": cyc.get("ref: waveform alone, 400 column fill_rects (render)"),

@@ -1,5 +1,6 @@
 pub mod cinematic;
 pub mod core;
+pub mod fixed;
 pub mod stopwatch;
 pub mod timeline;
 pub mod timing;
@@ -9,6 +10,7 @@ pub mod widget_anim;
 
 pub use cinematic::*;
 pub use core::*;
+pub use fixed::*;
 pub use stopwatch::*;
 pub use timeline::*;
 pub use timing::*;

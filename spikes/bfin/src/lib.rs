@@ -12,7 +12,7 @@ use core::{cell::Cell, mem::MaybeUninit};
 use embedded_graphics_core::pixelcolor::{Rgb555, Rgb565, IntoStorage};
 use embedded_gui::{
     Border, CustomCanvas, CustomWidget, Direct, EdgeInsets, Mask, MaskFormat, RawImage, RawTarget, Rgb555Surface, FontId, GuiContext, GuiError,
-    LinearGradient, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
+    LinearGradient, QEase, QTween, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
 };
 
 pub const W: u32 = 480;
@@ -394,6 +394,21 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     g.set_widget_style(rows[0], row_style(0, false).into())?;
     g.set_widget_style(rows[1], row_style(1, true).into())?;
     dirty(g, px);
+    mark(Mark::Dirty, px);
+
+    // Integer tween: the selected row slides in from x=120 over 120 ms,
+    // OutCubic, one render_dirty per 16 ms tick (8 frames, one mark).
+    let tw = QTween::new(120, 0, 0, 120, QEase::OutCubic);
+    let mut now = 0;
+    loop {
+        now += 16;
+        g.clear_dirty();
+        g.set_widget_rect(rows[1], Rect::new(tw.value(now), 20 + ROW_H as i32, LIST_W, ROW_H))?;
+        dirty(g, px);
+        if tw.done(now) {
+            break;
+        }
+    }
     mark(Mark::Dirty, px);
 
     // ponytail: the old context is just overwritten; it owns nothing to drop.
