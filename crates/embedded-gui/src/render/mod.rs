@@ -2163,7 +2163,10 @@ where
             return Ok(());
         }
         let ink = C::ink(self.target, tint);
-        C::blit(self.target, x, y, img, clip, ink)
+        match img {
+            RawImage::Mask(m) => C::mask(self.target, x, y, m, clip, ink),
+            _ => C::blit(self.target, x, y, img, clip, ink),
+        }
     }
 
     /// The damage rect this pass is limited to, if any.

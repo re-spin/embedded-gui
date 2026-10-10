@@ -206,6 +206,40 @@ impl<D: RawTarget> Compositor<D> for Direct {
     }
 }
 
+/// Default [`Rgb555Surface::mask1_rows`].
+pub fn mask1_rows(px: &mut [u16], at: usize, stride: usize, mask: &Mask<'_>, sub: Rect, ink: u16) {
+    if sub.is_empty() || sub.x < 0 || sub.y < 0 || sub.w > 32 {
+        return;
+    }
+    // Columns outside `sub` are masked off, so a row ends at its last set bit.
+    let (skip, nbytes) = (sub.x as u32, mask.w.div_ceil(8).min(4) as usize);
+    let keep = u32::MAX << (32 - sub.w); // 1 <= sub.w <= 32
+    for (r, my) in (sub.y..sub.bottom()).enumerate() {
+        let src = my as usize * mask.stride;
+        let dst = at + r * stride;
+        let (Some(bits), Some(row)) = (
+            mask.data.get(src..src + nbytes),
+            px.get_mut(dst..dst + sub.w as usize),
+        ) else {
+            return;
+        };
+        let word = bits
+            .iter()
+            .enumerate()
+            .fold(0u32, |w, (i, b)| w | (*b as u32) << (24 - 8 * i));
+        let mut word = word.checked_shl(skip).unwrap_or(0) & keep;
+        for p in row {
+            if word == 0 {
+                break;
+            }
+            if (word as i32) < 0 {
+                *p = ink;
+            }
+            word <<= 1;
+        }
+    }
+}
+
 /// Calls `fill` with each run of set bits of an A1 mask inside `clip`.
 pub fn mask1_spans(x: i32, y: i32, mask: &Mask<'_>, clip: Rect, mut fill: impl FnMut(Rect)) {
     let clip = clip.intersection(Rect::new(x, y, mask.w, mask.h));
@@ -299,6 +333,11 @@ pub struct Rgb555Surface<'a> {
     /// One line of [`Self::smear_x`]/[`Self::smear_y`]: `(px, start, step,
     /// len, taps)` (default: [`smear_line`]).
     pub smear_line: fn(&mut [u16], usize, usize, usize, u32),
+    /// The part `sub` (mask coordinates, inside the mask, at most 32 wide)
+    /// of an A1 mask: `ink` where a bit is set, other pixels kept. `sub`'s
+    /// top-left lands on `px[at]`, rows `stride` apart (default:
+    /// [`mask1_rows`]).
+    pub mask1_rows: fn(&mut [u16], usize, usize, &Mask<'_>, Rect, u16),
 }
 
 impl<'a> Rgb555Surface<'a> {
@@ -311,6 +350,7 @@ impl<'a> Rgb555Surface<'a> {
             index_row: indexed_row,
             move_px,
             smear_line,
+            mask1_rows,
         }
     }
 
@@ -706,32 +746,10 @@ impl RawTarget for Rgb555Surface<'_> {
         if mask.w > 32 || mask.format != MaskFormat::A1 {
             return mask1_spans(x, y, mask, c, |r| self.fill_native(r, px));
         }
-        // Columns outside the clip are masked off, so a row ends at its last set bit.
-        let (skip, nbytes) = ((c.x - x) as u32, mask.w.div_ceil(8) as usize);
-        let keep = u32::MAX << (32 - c.w); // 1 <= c.w <= 32
-        for py in c.y..c.bottom() {
-            let at = (py - y) as usize * mask.stride;
-            let Some(bits) = mask.data.get(at..at + nbytes) else {
-                return;
-            };
-            let mut word = bits
-                .iter()
-                .enumerate()
-                .fold(0u32, |w, (i, b)| w | (*b as u32) << (24 - 8 * i));
-            word = (word << skip) & keep;
-            if word == 0 {
-                continue;
-            }
-            for p in self.row(py, c.x, c.right()) {
-                if (word as i32) < 0 {
-                    *p = px as u16;
-                }
-                word <<= 1;
-                if word == 0 {
-                    break;
-                }
-            }
-        }
+        let at = c.y as usize * self.w as usize + c.x as usize;
+        let sub = Rect::new(c.x - x, c.y - y, c.w, c.h);
+        let mask1_rows = self.mask1_rows;
+        mask1_rows(self.px, at, self.w as usize, mask, sub, px as u16);
     }
 
     fn blit(&mut self, x: i32, y: i32, img: &RawImage<'_>, clip: Rect, tint: u32) {
