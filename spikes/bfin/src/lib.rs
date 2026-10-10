@@ -112,12 +112,21 @@ pub struct Wave {
 
 impl CustomWidget for Wave {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
-        let mut seed = 0x1234_5678u32;
-        let mid = r.y + r.h as i32 / 2;
+        // Integer only and no per-column division (BF531 has no divider): a
+        // reciprocal per render, exact for these 8-bit values and half < 256.
+        let half = r.h / 2;
+        if half == 0 || half > 255 {
+            return Ok(());
+        }
+        let inv = (1u32 << 16).div_ceil(half);
+        let (mut seed, mut phase) = (0x1234_5678u32, 0);
+        let mid = r.y + half as i32;
         for x in 0..r.w as i32 {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let amp = (seed >> 24) % (r.h / 2);
-            let amp = if x % 22 < 3 { r.h / 2 - 1 } else { amp / 3 };
+            let v = seed >> 24;
+            let rem = v - ((v * inv) >> 16) * half; // v % half
+            let amp = if phase < 3 { half - 1 } else { (rem * 0x5556) >> 16 }; // rem / 3
+            phase = if phase == 21 { 0 } else { phase + 1 };
             c.fill_rect(Rect::new(r.x + x, mid - amp as i32, 1, 2 * amp + 1), self.color)?;
         }
         Ok(())
