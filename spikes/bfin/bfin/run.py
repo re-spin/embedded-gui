@@ -100,6 +100,10 @@ def main():
         run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-Os", "-ffreestanding", "-fno-builtin",
             "-Wall", "-Wextra", "-Werror", "-c", src, "-o", obj)
         objs.append(obj)
+    # The firmware's row fill (_cdj_gui_fill16); --gc-sections drops the rest of the file.
+    copy = OUT / "copy.o"
+    run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", MODS / "rust/gui/presentation/asm/copy.S", "-o", copy)
+    objs.append(copy)
     elf = OUT / "spike.elf"
     # Pass 1: the real link (sizes, gates). Pass 2 (sim only): every soft-float
     # helper pass 1 linked is wrapped with a call counter (ld --wrap).

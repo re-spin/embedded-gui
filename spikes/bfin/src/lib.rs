@@ -21,7 +21,12 @@ pub const H: u32 = 234;
 /// X1RGB555 surface: the crate's `Rgb555Surface` (565 -> 555 at the target,
 /// one conversion per draw call) rendered through the `Direct` compositor.
 pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
-    Rgb555Surface::new(px, W, H)
+    let mut s = Rgb555Surface::new(px, W, H);
+    #[cfg(target_os = "none")]
+    {
+        s.fill_row = firmware::fill16;
+    }
+    s
 }
 
 // ── styles ───────────────────────────────────────────────────────────────────
@@ -276,6 +281,13 @@ fn dirty(g: &mut Gui, px: &mut [u16]) {
 mod firmware {
     unsafe extern "C" {
         fn spike_panic(file: *const u8, len: usize, line: u32) -> !;
+        /// cdj-2000nxs-mods rust/gui/presentation/asm/copy.S: 32-bit stores in a
+        /// hardware loop, the firmware's row fill.
+        fn cdj_gui_fill16(dst: *mut u16, value: u16, count: usize) -> *mut u16;
+    }
+
+    pub fn fill16(row: &mut [u16], v: u16) {
+        unsafe { cdj_gui_fill16(row.as_mut_ptr(), v, row.len()) };
     }
 
     /// Reports file:line to the bench and exits the simulator (no fmt).
