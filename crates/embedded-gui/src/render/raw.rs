@@ -1292,6 +1292,37 @@ mod tests {
     }
 
     #[test]
+    fn damage_rect_repaints_only_that_area() {
+        let red = crate::style::Style::new().with_background(Some(Rgb565::new(31, 0, 0)));
+        let mut g = tree();
+        g.add_label(Rect::new(2, 2, 20, 10), "", red).unwrap();
+        g.add_label(Rect::new(26, 2, 10, 10), "", red).unwrap();
+        let mut full = vec![0u16; 40 * 20];
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut full, 40, 20))
+            .unwrap();
+        g.clear_dirty();
+        // Out of the viewport entirely: nothing to do.
+        g.damage_rect(Rect::new(50, 0, 5, 5)).unwrap();
+        assert!(g.dirty_regions().is_empty());
+        let hit = Rect::new(8, 4, 6, 3);
+        g.damage_rect(hit).unwrap();
+        let mut px = vec![0x1234u16; 40 * 20];
+        g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        for y in 0..20 {
+            for x in 0..40 {
+                let i = y * 40 + x;
+                let want = if hit.contains(x as i32, y as i32) {
+                    full[i]
+                } else {
+                    0x1234
+                };
+                assert_eq!(px[i], want, "({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
     fn smear_matches_box_reference() {
         // Reference: per-channel box average over [k - n/2, k + n/2), clamped.
         fn reference(line: &[u16], n: usize) -> vec::Vec<u16> {

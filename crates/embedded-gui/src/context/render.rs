@@ -187,6 +187,18 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    /// Damages `r` (clipped to the viewport) so the next dirty render repaints
+    /// just that area: widgets intersecting it draw clipped to it, the rest
+    /// are skipped. Finer than [`Self::mark_widget_dirty`] for a widget that
+    /// only redraws what intersects its canvas clip.
+    pub fn damage_rect(&mut self, r: Rect) -> Result<(), GuiError> {
+        let r = r.intersection(self.viewport);
+        if r.is_empty() {
+            return Ok(());
+        }
+        self.damage(r)
+    }
+
     /// Adds damage; if the tracker is full, falls back to the whole viewport.
     fn damage(&mut self, r: Rect) -> Result<(), GuiError> {
         if self.dirty.add(r).is_err() {
