@@ -767,16 +767,18 @@ mod firmware {
     /// The crate's mask1_rows in assembly for blocks up to 16 px wide (one
     /// or two mask bytes a row); anything else takes the crate's.
     pub fn mask1_rows(px: &mut [u16], at: usize, stride: usize, mask: &Mask<'_>, sub: Rect, ink: u16) {
+        // Every term below 2^15 (and `at` below px.len()): the products and
+        // sums stay under 2^31, so no 64-bit checked multiplies.
         let fits = || {
-            let (skip, top) = (u32::try_from(sub.x).ok()?, usize::try_from(sub.y).ok()?);
-            let (w, h) = (sub.w as usize, sub.h as usize);
-            let last = h.checked_sub(1)?;
-            let src = top.checked_mul(mask.stride)?;
-            let dst_end = last.checked_mul(stride)?.checked_add(at)?.checked_add(w)?;
-            let two = usize::from(skip + sub.w > 8);
-            let src_end = last.checked_mul(mask.stride)?.checked_add(src)?.checked_add(1 + two)?;
-            (w != 0 && skip + sub.w <= 16 && mask.format == MaskFormat::A1 && dst_end <= px.len() && src_end <= mask.data.len())
-                .then_some((skip, src, two))
+            let (skip, top, w, h) = (sub.x as u32 as usize, sub.y as u32 as usize, sub.w as usize, sub.h as usize);
+            if (skip | top | w | h | stride | mask.stride) >= 0x8000 || w == 0 || h == 0 || skip + w > 16 {
+                return None;
+            }
+            let (src, two) = (top * mask.stride, usize::from(skip + w > 8));
+            let ok = mask.format == MaskFormat::A1
+                && at + (h - 1) * stride + w <= px.len()
+                && src + (h - 1) * mask.stride + 1 + two <= mask.data.len();
+            ok.then_some((skip as u32, src, two))
         };
         let Some((skip, src, two)) = fits() else {
             return embedded_gui::render::raw::mask1_rows(px, at, stride, mask, sub, ink);
