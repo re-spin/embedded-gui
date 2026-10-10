@@ -319,14 +319,9 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     where
         D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
     {
-        if !self.effective_visible(id) {
-            return Ok(None);
-        }
-        let Some(node) = self.node(id) else {
+        let (Some(node), Some((_, base_clip))) = (self.node(id), self.placement(id)) else {
             return Ok(None);
         };
-
-        let base_clip = self.inherited_clip(id).unwrap_or(self.viewport);
         if bounds.intersection(base_clip).is_empty() {
             return Ok(None);
         }
@@ -449,10 +444,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         C: crate::render::Compositor<D>,
     {
         for node in &self.widgets {
-            if !self.effective_visible(node.id) {
-                continue;
-            }
-            let Some(base_rect) = self.absolute_rect(node.id) else {
+            let Some((base_rect, base_clip)) = self.placement(node.id) else {
                 continue;
             };
             let rect = Rect::new(
@@ -461,7 +453,6 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                 base_rect.w,
                 base_rect.h,
             );
-            let base_clip = self.inherited_clip(node.id).unwrap_or(self.viewport);
             let clip = Rect::new(
                 base_clip.x + offset_x,
                 base_clip.y + offset_y,

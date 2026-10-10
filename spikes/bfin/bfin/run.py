@@ -37,6 +37,8 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build big indexed8", "ref: 400x90 indexed8, 70% transparent index 0 (render)",
           "ref: build big indexed8 (255)", "ref: 400x90 indexed8, 70% transparent index 255 (render)",
           "ref: build wave", "ref: waveform alone, 400 column fill_rects (render)",
+          "ref: build 32-widget tree", "ref: 32-widget tree, 3 levels (render)",
+          "ref: 32-widget tree, 1x1 empty label damaged (render_dirty)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -211,6 +213,8 @@ def main():
         "a4_text": cyc.get("ref: 20 glyph-like A4 masks 24x24 on a 240x60 pane (render)"),
         "indexed_t0": cyc.get("ref: 400x90 indexed8, 70% transparent index 0 (render)"),
         "indexed_t255": cyc.get("ref: 400x90 indexed8, 70% transparent index 255 (render)"),
+        "tree_full": cyc.get("ref: 32-widget tree, 3 levels (render)"),
+        "tree_walk": cyc.get("ref: 32-widget tree, 1x1 empty label damaged (render_dirty)"),
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

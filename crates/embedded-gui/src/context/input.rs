@@ -518,7 +518,18 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     }
 
     pub(crate) fn node(&self, id: WidgetId) -> Option<&WidgetNode<'a>> {
-        self.widgets.iter().find(|node| node.id == id)
+        self.widgets.get(self.slot(id)?)
+    }
+
+    /// Index of `id` in `widgets`. Ids are handed out in order and widgets are
+    /// never removed, so `id - 1` is the slot; the scan is only a fallback.
+    #[inline]
+    fn slot(&self, id: WidgetId) -> Option<usize> {
+        let guess = usize::from(id.0).wrapping_sub(1);
+        if self.widgets.get(guess).is_some_and(|node| node.id == id) {
+            return Some(guess);
+        }
+        self.widgets.iter().position(|node| node.id == id)
     }
 
     pub(crate) fn intrinsic_size(&self, id: WidgetId) -> Option<(u32, u32)> {
@@ -686,7 +697,8 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     }
 
     pub(crate) fn node_mut(&mut self, id: WidgetId) -> Option<&mut WidgetNode<'a>> {
-        self.widgets.iter_mut().find(|node| node.id == id)
+        let i = self.slot(id)?;
+        self.widgets.get_mut(i)
     }
 
     pub(crate) fn effective_visible(&self, id: WidgetId) -> bool {
@@ -708,24 +720,37 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         true
     }
 
-    pub(crate) fn inherited_clip(&self, id: WidgetId) -> Option<Rect> {
-        let mut clip = self.viewport;
-        let mut chain = heapless::Vec::<WidgetId, NODES>::new();
-        let mut current = Some(id);
-        while let Some(widget_id) = current {
-            chain.push(widget_id).ok()?;
-            current = self.node(widget_id)?.parent;
+    /// `id`'s absolute rect and the clip it draws under (the viewport, its own
+    /// rect and every clipping ancestor's), or `None` if it or an ancestor is
+    /// hidden. Two walks up the parents, no allocation.
+    pub(crate) fn placement(&self, id: WidgetId) -> Option<(Rect, Rect)> {
+        let node = self.node(id)?;
+        let rect = self.absolute_rect(id)?;
+        let mut clip = self.viewport.intersection(rect);
+        if node.hidden() {
+            return None;
         }
-        for widget_id in chain.iter().rev().copied() {
-            let node = self.node(widget_id)?;
-            if widget_id == id || node.clips_children() {
-                clip = clip.intersection(self.absolute_rect(widget_id)?);
-            }
-            if clip.is_empty() {
+        // Walking up, `origin` is the current node's absolute top-left.
+        let (mut origin, mut cur) = ((rect.x, rect.y), node);
+        let mut depth = 0;
+        while let Some(parent_id) = cur.parent {
+            let parent = self.node(parent_id)?;
+            if depth >= NODES || parent.hidden() {
                 return None;
             }
+            origin = (origin.0 - cur.rect.x, origin.1 - cur.rect.y);
+            #[cfg(feature = "rich-widgets")]
+            if let WidgetKind::ScrollView { offset_y, .. } = parent.kind {
+                origin.1 += offset_y;
+            }
+            if parent.clips_children() {
+                let r = parent.rect;
+                clip = clip.intersection(Rect::new(origin.0, origin.1, r.w, r.h));
+            }
+            cur = parent;
+            depth += 1;
         }
-        Some(clip)
+        Some((rect, clip))
     }
 
     pub(crate) fn effective_enabled(&self, id: WidgetId) -> bool {

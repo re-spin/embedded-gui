@@ -1018,6 +1018,14 @@ mod tests {
         g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
             .unwrap();
         assert_eq!(red_rect(&px), Some(Rect::new(8, 8, 8, 8)));
+        // Clipped again and moved wholly outside the parent: not drawn at all.
+        g.set_flag(parent, crate::widget::WidgetFlags::CLIP_CHILDREN, true)
+            .unwrap();
+        g.set_widget_rect(child, Rect::new(20, 0, 4, 4)).unwrap();
+        px.fill(0);
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), None);
     }
 
     #[cfg(feature = "rich-widgets")]

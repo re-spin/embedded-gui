@@ -474,6 +474,27 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
+    // Tree overhead: 32 widgets (root, 2 groups, 28 child labels, one 1x1
+    // empty label). Damaging only the 1x1 label measures the per-pass walk.
+    let g = Gui::init_in_place(slot, view);
+    let root = g.add_panel(view, st(Some(BLACK), WHITE, SMALL, pad(0, 0)))?;
+    for gx in [0, 240] {
+        let group = g.add_panel(Rect::new(gx, 0, 240, H), st(None, WHITE, SMALL, pad(0, 0)))?;
+        g.add_child(root, group)?;
+        for i in 0..14 {
+            let row = g.add_label(Rect::new(4, i * 16, 232, 16), TRACKS[i as usize % ROWS], st(None, WHITE, SMALL, pad(2, 2)))?;
+            g.add_child(group, row)?;
+        }
+    }
+    let dot = g.add_label(Rect::new(0, 0, 1, 1), "", st(None, WHITE, SMALL, pad(0, 0)))?;
+    g.add_child(root, dot)?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    g.clear_dirty();
+    g.mark_widget_dirty(dot)?;
+    dirty(g, px);
+    mark(Mark::Ref, px);
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
