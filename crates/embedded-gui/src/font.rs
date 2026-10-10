@@ -15,6 +15,13 @@ pub trait Font: Send + Sync {
     /// Render a single glyph by calling `draw_pixel(dx, dy)` for each active pixel
     /// in the glyph, where `(dx, dy)` are relative coordinates within the glyph bounding box.
     fn draw_glyph(&self, ch: char, draw_pixel: &mut dyn FnMut(i32, i32));
+
+    /// The glyph as a coverage mask (A1, or A4/A8 for anti-aliased fonts), if
+    /// the font stores one. Opaque text with an identity transform draws it in
+    /// one target call instead of per pixel.
+    fn glyph_mask(&self, _ch: char) -> Option<crate::render::Mask<'static>> {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,6 +225,16 @@ impl Font for BitmapFont {
             }
         });
     }
+    fn glyph_mask(&self, ch: char) -> Option<crate::render::Mask<'static>> {
+        let data = self.glyph_bytes(ch)?;
+        Some(crate::render::Mask {
+            w: self.width as u32,
+            h: self.height as u32,
+            stride: self.bytes_per_row as usize,
+            format: crate::render::MaskFormat::A1,
+            data,
+        })
+    }
 }
 
 /// A sparse or non-contiguous Unicode bitmap font.
@@ -340,6 +357,16 @@ impl Font for SparseBitmapFont {
             }
         });
     }
+    fn glyph_mask(&self, ch: char) -> Option<crate::render::Mask<'static>> {
+        let data = self.glyph_bytes(ch)?;
+        Some(crate::render::Mask {
+            w: self.width as u32,
+            h: self.height as u32,
+            stride: self.bytes_per_row as usize,
+            format: crate::render::MaskFormat::A1,
+            data,
+        })
+    }
 }
 
 impl From<&'static SparseBitmapFont> for FontId {
@@ -453,6 +480,16 @@ impl PartialEq for FontId {
 impl Eq for FontId {}
 
 impl FontId {
+    /// The glyph's coverage mask, for fonts that store one.
+    #[inline]
+    pub fn glyph_mask(self, ch: char) -> Option<crate::render::Mask<'static>> {
+        match self {
+            Self::Bitmap(font) => font.glyph_mask(ch),
+            Self::Dynamic(font) => font.glyph_mask(ch),
+            _ => None,
+        }
+    }
+
     pub fn advance(self) -> u32 {
         match self {
             Self::Tiny3x5 => 4,

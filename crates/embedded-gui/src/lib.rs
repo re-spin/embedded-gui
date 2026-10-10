@@ -182,8 +182,9 @@ pub use render::{
     dispatch_draw_tasks,
 };
 pub use render::{
-    HardwareVerticalScrollTarget, HardwareVerticalScroller, LineBufferRenderer,
-    MipiDcsScrollConfig, ScanlineTarget, ScrollConfigError, ScrollDamage, St7789ScrollConfig,
+    Direct, HardwareVerticalScrollTarget, HardwareVerticalScroller, LineBufferRenderer, Mask,
+    MaskFormat, MipiDcsScrollConfig, RawTarget, Rgb555Surface, ScanlineTarget, ScrollConfigError,
+    ScrollDamage, St7789ScrollConfig,
 };
 pub use round::{UnobstructedArea, circle_chord_width, round_screen_line_bounds};
 pub use screen::{

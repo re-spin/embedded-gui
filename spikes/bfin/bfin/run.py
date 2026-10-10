@@ -175,6 +175,10 @@ def main():
             for i in range(nframes)]
     for i, s in enumerate(same):
         print(f"frame{i:02}.x1rgb555: Blackfin {'==' if s else '!='} host render")
+    # Optional pin: frames saved from an earlier build (e.g. the spike's) in target/frames-base.
+    base = SPIKE / "target/frames-base"
+    vs_base = [(base / f"frame{i:02}.x1rgb555").read_bytes() == (OUT / f"frame{i:02}.x1rgb555").read_bytes()
+               for i in range(nframes)] if base.exists() else []
     cyc = {label: c for (_, c, _), label in zip(marks, LABELS)}
     summary = {
         "opt": opt,
@@ -186,6 +190,7 @@ def main():
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,
         "text": sections.get(".text", 0), "panic_sites": sum(sites.values()),
         "render_softfloat_calls": sum(sf for _, _, sf in marks), "identical": all(same),
+        "same_as_base": all(vs_base) if vs_base else None,
     }
     print("SUMMARY", json.dumps(summary))
 

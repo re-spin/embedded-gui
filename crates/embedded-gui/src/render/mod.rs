@@ -3,6 +3,7 @@ pub mod band;
 pub mod compositor;
 pub mod hardware_scroll;
 pub mod line_buffer;
+pub mod raw;
 pub mod span;
 pub mod stroke;
 pub mod task;
@@ -20,6 +21,7 @@ pub use hardware_scroll::{
     ScrollDamage, St7789ScrollConfig,
 };
 pub use line_buffer::{LineBufferRenderer, ScanlineTarget};
+pub use raw::{Direct, Mask, MaskFormat, RawTarget, Rgb555Surface};
 pub use span::{FixedSpanRasterizer, ScanlineSpan};
 pub use stroke::{
     AntiAliasMode, PathVerb, RenderQuality, StrokeCap, StrokeDash, StrokeJoin, StrokeStyle,
@@ -108,6 +110,29 @@ where
             target,
             clip: viewport,
             dirty: Some(dirty),
+            quality: RenderQuality::High,
+            backend_caps: RenderBackendCaps::software_rgb565(),
+            transform_stack: [Transform2D::IDENTITY; 8],
+            transform_len: 1,
+            layer_stack: [LayerState::normal(); 8],
+            layer_len: 1,
+            palette: None,
+            _compositor: PhantomData,
+        }
+    }
+}
+
+impl<'a, D, C> RenderCtx<'a, D, C>
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    /// A context with compositor `C` (e.g. [`Direct`] for a [`RawTarget`]),
+    /// limited to `dirty` when given.
+    pub fn with_compositor(target: &'a mut D, viewport: Rect, dirty: Option<Rect>) -> Self {
+        Self {
+            target,
+            clip: viewport,
+            dirty,
             quality: RenderQuality::High,
             backend_caps: RenderBackendCaps::software_rgb565(),
             transform_stack: [Transform2D::IDENTITY; 8],
@@ -955,13 +980,14 @@ where
         let line_h = font.line_height() as i32;
         let mut cursor_x = x;
         let mut cursor_y = y;
+        let ink = self.text_ink(color, 255);
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
                 cursor_y += line_h;
                 continue;
             }
-            self.draw_char_with_font(cursor_x, cursor_y, ch, color, 255, font)?;
+            self.draw_glyph(cursor_x, cursor_y, ch, color, 255, font, ink)?;
             cursor_x += advance;
         }
         Ok(())
@@ -1782,8 +1808,9 @@ where
         let advance = font.advance() as i32;
         let mut cursor_x = x;
         let mut prev: Option<char> = None;
+        let ink = self.text_ink(color, opacity);
         for ch in text.chars().skip(start).take(len) {
-            self.draw_char_with_font(cursor_x, y, ch, color, opacity, font)?;
+            self.draw_glyph(cursor_x, y, ch, color, opacity, font, ink)?;
             cursor_x += advance + kerning_adjust(prev, ch, kerning);
             prev = Some(ch);
         }
@@ -1880,6 +1907,43 @@ where
                 }
             })
             .sum()
+    }
+
+    /// Per-call text setup: the target ink when glyph masks can go straight
+    /// to the target (opaque, normal blend, identity transform).
+    fn text_ink(&self, color: Rgb565, opacity: u8) -> Option<u32> {
+        let layer = self.current_layer();
+        (opacity == 255
+            && layer.opacity == 255
+            && layer.blend == BlendMode::Normal
+            && self.current_transform().is_identity())
+        .then(|| C::ink(self.target, color))
+    }
+
+    /// One glyph: its mask in one target call when `ink` is set and the font
+    /// has masks, else the per-pixel path.
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    fn draw_glyph(
+        &mut self,
+        x: i32,
+        y: i32,
+        ch: char,
+        color: Rgb565,
+        opacity: u8,
+        font: FontId,
+        ink: Option<u32>,
+    ) -> Result<(), D::Error> {
+        if let Some(ink) = ink {
+            if let Some(mask) = font.glyph_mask(ch) {
+                let clip = self.visible_rect(Rect::new(x, y, mask.w, mask.h));
+                if clip.is_empty() {
+                    return Ok(());
+                }
+                return C::mask(self.target, x, y, &mask, clip, ink);
+            }
+        }
+        self.draw_char_with_font(x, y, ch, color, opacity, font)
     }
 
     fn draw_char_with_font(

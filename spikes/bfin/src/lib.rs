@@ -1,69 +1,27 @@
 //! Feasibility spike: embedded-gui (default-features off + `libm`) rendering
 //! two CDJ-2000NXS screens into a 480x234 X1RGB555 surface.
 //!
-//! embedded-gui renders `Rgb565` only, so the surface is wrapped in the
-//! crate's own `ColorConvertedDrawTarget` (565 -> 555 per call / per pixel).
+//! embedded-gui renders `Rgb565`; the surface converts to 555 once per draw
+//! call and takes glyph masks and fills natively (`RawTarget` + `Direct`).
 #![no_std]
 
 mod fonts;
 
 use core::{cell::Cell, mem::MaybeUninit};
 
-use embedded_graphics_core::{
-    Pixel,
-    draw_target::DrawTarget,
-    geometry::{Dimensions, OriginDimensions, Size},
-    pixelcolor::{IntoStorage, Rgb555, Rgb565},
-    primitives::Rectangle,
-};
+use embedded_graphics_core::pixelcolor::{Rgb555, Rgb565, IntoStorage};
 use embedded_gui::{
-    Border, CustomCanvas, CustomWidget, DrawTargetColorExt, EdgeInsets, FontId, GuiContext, GuiError,
+    Border, CustomCanvas, CustomWidget, Direct, EdgeInsets, RawTarget, Rgb555Surface, FontId, GuiContext, GuiError,
     LinearGradient, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
 };
 
 pub const W: u32 = 480;
 pub const H: u32 = 234;
 
-/// X1RGB555 surface. embedded-graphics `Rgb555` storage is that layout bit for
-/// bit, so a pixel is one u16 store. Size is a parameter (800x480 later).
-pub struct Fb<'a> {
-    pub px: &'a mut [u16],
-    pub w: u32,
-    pub h: u32,
-}
-
-impl OriginDimensions for Fb<'_> {
-    fn size(&self) -> Size {
-        Size::new(self.w, self.h)
-    }
-}
-
-impl DrawTarget for Fb<'_> {
-    type Color = Rgb555;
-    type Error = core::convert::Infallible;
-
-    fn draw_iter<I: IntoIterator<Item = Pixel<Rgb555>>>(&mut self, pixels: I) -> Result<(), Self::Error> {
-        for Pixel(p, c) in pixels {
-            if (p.x as u32) < self.w && (p.y as u32) < self.h {
-                if let Some(px) = self.px.get_mut(p.y as usize * self.w as usize + p.x as usize) {
-                    *px = c.into_storage();
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn fill_solid(&mut self, area: &Rectangle, color: Rgb555) -> Result<(), Self::Error> {
-        let a = area.intersection(&self.bounding_box());
-        let Some(br) = a.bottom_right() else { return Ok(()) };
-        let (x0, x1, w) = (a.top_left.x as usize, br.x as usize + 1, self.w as usize);
-        for y in a.top_left.y as usize..=br.y as usize {
-            if let Some(row) = self.px.get_mut(y * w + x0..y * w + x1) {
-                row.fill(color.into_storage());
-            }
-        }
-        Ok(())
-    }
+/// X1RGB555 surface: the crate's `Rgb555Surface` (565 -> 555 at the target,
+/// one conversion per draw call) rendered through the `Direct` compositor.
+pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
+    Rgb555Surface::new(px, W, H)
 }
 
 // ── styles ───────────────────────────────────────────────────────────────────
@@ -283,7 +241,7 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Dirty, px);
 
     // Cost attribution. Raw fill of the whole screen, our code only:
-    Fb { px, w: W, h: H }.fill_solid(&Rectangle::new(Default::default(), Size::new(W, H)), Rgb555::new(1, 2, 3)).ok();
+    fb(px).fill_native(view, Rgb555::new(1, 2, 3).into_storage() as u32);
     mark(Mark::Ref, px);
     // One full-screen panel through embedded-gui:
     let g = slot.write(Gui::new(view));
@@ -307,13 +265,11 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
 }
 
 fn full(g: &mut Gui, px: &mut [u16]) {
-    let mut fb = Fb { px, w: W, h: H };
-    let _ = g.render(&mut fb.color_converted::<Rgb565>());
+    let _ = g.render_with::<_, Direct>(&mut fb(px));
 }
 
 fn dirty(g: &mut Gui, px: &mut [u16]) {
-    let mut fb = Fb { px, w: W, h: H };
-    let _ = g.render_dirty(&mut fb.color_converted::<Rgb565>());
+    let _ = g.render_dirty_with::<_, Direct>(&mut fb(px));
 }
 
 #[cfg(target_os = "none")]

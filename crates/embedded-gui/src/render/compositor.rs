@@ -2,8 +2,11 @@ use embedded_graphics_core::{
     Pixel,
     draw_target::DrawTarget,
     geometry::Point,
-    pixelcolor::{Rgb565, RgbColor},
+    pixelcolor::{IntoStorage, Rgb565, RgbColor},
 };
+
+use super::raw::Mask;
+use crate::geometry::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlendMode {
@@ -31,6 +34,37 @@ pub trait Compositor<D: DrawTarget<Color = Rgb565>> {
         blend: BlendMode,
         backdrop: Rgb565,
     ) -> Result<(), D::Error>;
+
+    /// Target pixel token for `color`, resolved once per draw call and passed
+    /// to [`fill`](Self::fill), [`mask`](Self::mask) and [`blit`](Self::blit).
+    #[inline]
+    fn ink(_target: &D, color: Rgb565) -> u32 {
+        color.into_storage() as u32
+    }
+
+    /// Opaque fill of `rect`, already limited to the pass (clip ∩ dirty).
+    #[inline]
+    fn fill(target: &mut D, rect: Rect, ink: u32) -> Result<(), D::Error> {
+        target.fill_solid(&super::raw::rectangle(rect), super::raw::rgb565_of(ink))
+    }
+
+    /// Opaque coverage mask with its top-left at `(x, y)`, limited to `clip`.
+    fn mask(
+        target: &mut D,
+        x: i32,
+        y: i32,
+        mask: &Mask<'_>,
+        clip: Rect,
+        ink: u32,
+    ) -> Result<(), D::Error> {
+        let mut res = Ok(());
+        super::raw::mask1_spans(x, y, mask, clip, |r| {
+            if res.is_ok() {
+                res = Self::fill(target, r, ink);
+            }
+        });
+        res
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

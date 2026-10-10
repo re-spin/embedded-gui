@@ -38,15 +38,37 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     where
         D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
     {
-        let slice = self.dirty.as_slice();
-        if slice.is_empty() {
-            return Ok(());
-        }
+        self.render_dirty_with::<D, crate::render::Dither>(target)
+    }
 
-        if slice.len() == 1 {
-            let mut ctx = RenderCtx::with_dirty(target, self.viewport, slice[0]);
+    /// [`GuiContext::render`] with compositor `C`, e.g.
+    /// [`Direct`](crate::render::Direct) for a [`RawTarget`](crate::render::RawTarget).
+    pub fn render_with<D, C>(&self, target: &mut D) -> Result<(), D::Error>
+    where
+        D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
+        C: crate::render::Compositor<D>,
+    {
+        let mut ctx = RenderCtx::<D, C>::with_compositor(target, self.viewport, None);
+        ctx.set_quality(self.render_quality);
+        self.render_into(&mut ctx, 0, 0, 255)
+    }
+
+    /// [`GuiContext::render_dirty`] with compositor `C`.
+    pub fn render_dirty_with<D, C>(&self, target: &mut D) -> Result<(), D::Error>
+    where
+        D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
+        C: crate::render::Compositor<D>,
+    {
+        let slice = self.dirty.as_slice();
+        let pass = |target: &mut D, dirty: Rect| {
+            let mut ctx = RenderCtx::<D, C>::with_compositor(target, self.viewport, Some(dirty));
             ctx.set_quality(self.render_quality);
-            return self.render_into(&mut ctx, 0, 0, 255);
+            self.render_into(&mut ctx, 0, 0, 255)
+        };
+        match slice {
+            [] => return Ok(()),
+            [one] => return pass(target, *one),
+            _ => {}
         }
 
         if let Some(bound) = self.dirty.bounding_rect() {
@@ -55,16 +77,12 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             // If bounding rect area is close to sum of individual areas (overlap or cluster),
             // render bounding rect in 1 pass to avoid multiple tree sweeps
             if area_bound <= sum_area + (sum_area / 2) {
-                let mut ctx = RenderCtx::with_dirty(target, self.viewport, bound);
-                ctx.set_quality(self.render_quality);
-                return self.render_into(&mut ctx, 0, 0, 255);
+                return pass(target, bound);
             }
         }
 
         for dirty in slice {
-            let mut ctx = RenderCtx::with_dirty(target, self.viewport, *dirty);
-            ctx.set_quality(self.render_quality);
-            self.render_into(&mut ctx, 0, 0, 255)?;
+            pass(target, *dirty)?;
         }
         Ok(())
     }
@@ -431,7 +449,11 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             );
             let visible = rect.intersection(clip);
             // Skip nodes outside this pass's damage before any style/text setup.
-            if visible.is_empty() || ctx.dirty_rect().is_some_and(|d| visible.intersection(d).is_empty()) {
+            if visible.is_empty()
+                || ctx
+                    .dirty_rect()
+                    .is_some_and(|d| visible.intersection(d).is_empty())
+            {
                 continue;
             }
             let old_clip = ctx.clip();
