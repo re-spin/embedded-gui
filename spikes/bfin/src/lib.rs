@@ -297,6 +297,12 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);
+    // The same label with no text: the difference / 21 is the cost per glyph.
+    let g = slot.write(Gui::new(view));
+    g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
     Ok(())
 }
 

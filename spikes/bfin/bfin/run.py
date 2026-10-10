@@ -1,11 +1,14 @@
 """Build the embedded-gui spike for bfin-cdj-gui, link a standalone ELF (no
 panic waiver), apply the GUI gates, run it in bfin-elf-run and report.
 
-Usage: python3 spikes/bfin/bfin/run.py   (from the embedded-gui repo root)
+Usage: python3 spikes/bfin/bfin/run.py [--opt 2|s]   (default 2: the mods GUI firmware
+profile; "s" maps to -O1 under codegen_gcc)
 Needs a cdj-2000nxs-mods checkout (CDJ_MODS, default ../cdj-2000nxs-mods) for
 the target spec, bench runtime, linker script and tools/build.py; read only.
 Simulator cycles are not hardware timing: no cache or SDRAM latency model.
 """
+import argparse
+import json
 import os
 import re
 import struct
@@ -28,7 +31,9 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "browse: selection 0->1 (render_dirty, 2 rows)", "player: build", "player: full frame",
           "player: frames digits (render_dirty)", "ref: raw fill 480x234 (no embedded-gui)",
           "ref: build 1 panel", "ref: 1 full-screen panel (render)", "ref: build 1 label",
-          "ref: 1 row label, 21 glyphs 9x18 (render)"]
+          "ref: 1 row label, 21 glyphs 9x18 (render)", "ref: build same label, no text",
+          "ref: same label, no text (render)"]
+GLYPHS = 21  # glyphs in the ref row label
 # Panic roots: core's panic entry points and the cold helpers that call them.
 PANIC = re.compile(r"panic|unwrap_failed|expect_failed|_fail\d|_fail$|slice_error_fail|rust_begin_unwind|unwind")
 
@@ -78,9 +83,15 @@ def softfloat_stubs(helpers):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--opt", default="2", help="gui-firmware opt-level (2 or s)")
+    opt = ap.parse_args().opt
+    # Host frames from the same tree, so the identity check is against this build.
+    run("cargo", "+nightly", "run", "-q", "--release", "--bin", "host", SPIKE / "target/frames", cwd=SPIKE)
+    env = dict(os.environ, CARGO_PROFILE_GUI_FIRMWARE_OPT_LEVEL=opt)
     run("cargo", "rustc", "-q", "--profile", "gui-firmware", "--lib", "--crate-type", "staticlib",
         "--target", MODS / ".sdk/targets/bfin-cdj-gui.json", "-Zjson-target-spec",
-        "-Zbuild-std=core,compiler_builtins", "-Zbuild-std-features=compiler-builtins-mem", cwd=SPIKE)
+        "-Zbuild-std=core,compiler_builtins", "-Zbuild-std-features=compiler-builtins-mem", cwd=SPIKE, env=env)
     lib = SPIKE / "target/bfin-cdj-gui/gui-firmware/libegui_bfin_spike.a"
     OUT.mkdir(parents=True, exist_ok=True)
     objs = []
@@ -160,11 +171,23 @@ def main():
         print(f"{label:48} {cyc:10d} cycles  {cyc / MHZ / 1000:7.3f} ms @{MHZ}MHz  soft-float calls {sf}")
     print("soft-float calls per helper (whole run):", {k[3:]: v for k, v in sf_totals.items() if v})
     host = SPIKE / "target/frames"
-    for i in range(nframes):
-        name = f"frame{i:02}.x1rgb555"
-        if (host / name).exists():
-            same = (host / name).read_bytes() == (OUT / name).read_bytes()
-            print(f"{name}: Blackfin {'==' if same else '!='} host render")
+    same = [(host / f"frame{i:02}.x1rgb555").read_bytes() == (OUT / f"frame{i:02}.x1rgb555").read_bytes()
+            for i in range(nframes)]
+    for i, s in enumerate(same):
+        print(f"frame{i:02}.x1rgb555: Blackfin {'==' if s else '!='} host render")
+    cyc = {label: c for (_, c, _), label in zip(marks, LABELS)}
+    summary = {
+        "opt": opt,
+        "browse_full": cyc["browse: full frame"], "row_text": cyc["browse: 1 row text (render_dirty)"],
+        "selection": cyc["browse: selection 0->1 (render_dirty, 2 rows)"],
+        "player_full": cyc["player: full frame"], "digits": cyc["player: frames digits (render_dirty)"],
+        "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
+        "panel": cyc["ref: 1 full-screen panel (render)"],
+        "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,
+        "text": sections.get(".text", 0), "panic_sites": sum(sites.values()),
+        "render_softfloat_calls": sum(sf for _, _, sf in marks), "identical": all(same),
+    }
+    print("SUMMARY", json.dumps(summary))
 
 
 if __name__ == "__main__":
