@@ -78,6 +78,8 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | | browse full / player full | 635k / 992k | 571k / 953k |
 | `bfin/index.S` keyed-255 row: all-255 words skip 4 px | 400x90 indexed8, 70% transparent (255) | 306k | 235k |
 | `mask1.S` pixel loop software-pipelined (2 cycles/px); wrapper without 64-bit checks | A1 16x16 glyph | 1.50k | 1.39k |
+| `index.S`: words with no 255 take a branch-free lookup path; keyed words out of line | 400x90 indexed8, ~1% 255 (firmware loop: 307k) | 384k est. (2276941) | 278k |
+| | 400x90, 70% 255 in mostly mixed words (worst case) | 235k | 374k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

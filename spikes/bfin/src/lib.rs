@@ -267,6 +267,19 @@ static BIG255: [u8; BW * BH] = {
     a
 };
 
+/// `BIG` nearly opaque: every pixel indexed, 255 at about 1 in 97 (respin-ui's
+/// keyed list and pane backgrounds).
+static BIG_OPAQUE: [u8; BW * BH] = {
+    let mut a = [0u8; BW * BH];
+    let mut i = 0;
+    while i < a.len() {
+        let (x, y) = (i % BW, i / BW);
+        a[i] = if (x * 7 + y * 13) % 97 == 0 { 255 } else { 1 + ((x + y) % 3) as u8 };
+        i += 1;
+    }
+    a
+};
+
 /// Blits a 400x90 indexed8 picture with transparent index `t`.
 pub struct BigIndexed {
     pub px: &'static [u8; BW * BH],
@@ -274,6 +287,7 @@ pub struct BigIndexed {
 }
 static BIG_T0: BigIndexed = BigIndexed { px: &BIG, t: 0 };
 static BIG_T255: BigIndexed = BigIndexed { px: &BIG255, t: 255 };
+static BIG_OPAQUE_T255: BigIndexed = BigIndexed { px: &BIG_OPAQUE, t: 255 };
 
 impl CustomWidget for BigIndexed {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
@@ -591,7 +605,7 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     mark(Mark::Ref, px);
     // A 400x90 indexed8 picture, 70% transparent, alone: transparent index 0
     // (Rust row), then 255 (firmware keyed asm row on Blackfin).
-    for big in [&BIG_T0, &BIG_T255] {
+    for big in [&BIG_T0, &BIG_T255, &BIG_OPAQUE_T255] {
         let g = Gui::init_in_place(slot, view);
         g.add_custom_widget(Rect::new(40, 50, BW as u32, BH as u32), big, st(None, WHITE, SMALL, pad(0, 0)))?;
         mark(Mark::Build, px);
