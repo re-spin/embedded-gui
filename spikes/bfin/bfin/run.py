@@ -45,6 +45,8 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build scroll list 12 rows", "ref: scroll list 300x192 (render)",
           "ref: scroll list one row, scroll_view_to (render_dirty)",
           "ref: scroll list one row, set_scroll_offset (render_dirty)",
+          "ref: build A1 text", "ref: 40 A1 glyphs 16x16, draw_raw_image each (render)",
+          "ref: build A1 text, none", "ref: A1 text widget, no glyphs (render)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -122,10 +124,10 @@ def main():
     copy = OUT / "copy.o"
     run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", MODS / "rust/gui/presentation/asm/copy.S", "-o", copy)
     objs.append(copy)
-    # The spike's own assembly (the smear's per-pixel loops).
-    smear = OUT / "smear.o"
-    run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", SPIKE / "bfin/smear.S", "-o", smear)
-    objs.append(smear)
+    # The spike's own assembly (the smear's per-pixel loops, the A1 mask row).
+    for name in ("smear", "mask1"):
+        run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", SPIKE / f"bfin/{name}.S", "-o", OUT / f"{name}.o")
+        objs.append(OUT / f"{name}.o")
     elf = OUT / "spike.elf"
     # Pass 1: the real link (sizes, gates). Pass 2 (sim only): every soft-float
     # helper pass 1 linked is wrapped with a call counter (ld --wrap).
@@ -169,7 +171,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 12  # Frame and Dirty marks
+    nframes = 13  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -230,6 +232,8 @@ def main():
         "smear_x": cyc.get("ref: smear_x 480x90, 8 taps"), "smear_y": cyc.get("ref: smear_y 480x90, 8 taps"),
         "list_scroll_copy": cyc.get("ref: scroll list one row, scroll_view_to (render_dirty)"),
         "list_scroll_repaint": cyc.get("ref: scroll list one row, set_scroll_offset (render_dirty)"),
+        "a1_glyph": (cyc["ref: 40 A1 glyphs 16x16, draw_raw_image each (render)"]
+                     - cyc["ref: A1 text widget, no glyphs (render)"]) // 40,
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

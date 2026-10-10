@@ -62,8 +62,18 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | `smear_line` hook + `bfin/smear.S` | 480x90, 8 taps | 1.45M / 1.57M | 504k / 813k |
 | `TextOverflow::WholeGlyphs`, `WHOLE_GLYPHS` flag | feature | | |
 | `RawImage` row stride | feature | | |
+| `mask1_rows` hook + `bfin/mask1.S`, masks skip `blit` | 9x18 label glyph | 2.80k | 1.52k |
+| | A1 16x16 glyph, one `draw_raw_image` each | ~5.9k ⁴ | 1.60k |
+| | browse full / one row text / selection | 985k / 72.4k / 130k | 805k / 49.7k / 89.1k |
+| | player full / 32-widget tree full | 1.38M / 596k | 1.32M / 468k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
+
+⁴ 6.38k measured with `i % 20`/`i / 20` in the bench loop, less ~470 for the
+two `___divsi3`/`___modsi3` calls: codegen_gcc emits them even for a constant
+divisor, so per-item layout maths should use running counters or shifts. A
+fully clipped `draw_raw_image` costs ~170 cycles (dyn call + clip), so a batch
+glyph call would save under 10%.
 
 NODES 32 -> 64 costs about 29 KB of context (31.8 -> 60.9 KB, about 910 B a
 slot across the widget list and its per-node side tables). Render time

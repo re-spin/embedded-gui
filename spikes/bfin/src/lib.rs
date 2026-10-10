@@ -28,6 +28,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
         s.index_row = firmware::index_row;
         s.move_px = firmware::move_px;
         s.smear_line = firmware::smear_line;
+        s.mask1_rows = firmware::mask1_rows;
     }
     s
 }
@@ -316,6 +317,45 @@ impl CustomWidget for Icons {
     }
 }
 
+/// A 16x16 A1 glyph (a ring with a stem, ~40% ink), stride 2.
+static GLYPH1: [u8; 32] = {
+    let mut a = [0u8; 32];
+    let mut i = 0;
+    while i < 256 {
+        let (x, y) = ((i % 16) as i32 - 7, (i / 16) as i32 - 7);
+        let d = x * x + y * y;
+        if (d >= 16 && d < 42) || (x >= 4 && x < 7) {
+            a[i / 8] |= 0x80 >> (i % 8);
+        }
+        i += 1;
+    }
+    a
+};
+
+/// `n` A1 16x16 glyphs, one `draw_raw_image` each, in rows of 20 (respin-ui's
+/// text path), clipped on three sides.
+pub struct A1Text(pub i32);
+static A1TEXT_40: A1Text = A1Text(40);
+static A1TEXT_0: A1Text = A1Text(0);
+
+impl CustomWidget for A1Text {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let m = RawImage::Mask(Mask { w: 16, h: 16, stride: 2, format: MaskFormat::A1, data: &GLYPH1 });
+        // Running pen, no `/ 20`: codegen_gcc calls ___divsi3 even for a
+        // constant. The first row and column and the last column are cut by
+        // the widget rect (columns skipped on the left, rows on top).
+        let (mut x, mut y) = (r.x - 5, r.y - 3);
+        for _ in 0..self.0 {
+            c.draw_raw_image(x, y, &m, WHITE)?;
+            x += 12;
+            if x >= r.x + 235 {
+                (x, y) = (r.x - 5, y + 18);
+            }
+        }
+        Ok(())
+    }
+}
+
 // ── screens ──────────────────────────────────────────────────────────────────
 
 /// ~1.2 KB per node slot (eight per-node side tables): keep it static, not on the stack.
@@ -562,6 +602,17 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     dirty(g, px);
     mark(Mark::Dirty, px);
 
+    // 40 A1 16x16 glyphs through draw_raw_image, then the same widget with
+    // none: the difference / 40 is the cost per A1 glyph call.
+    for n in [40, 0] {
+        let g = Gui::init_in_place(slot, view);
+        let w: &'static A1Text = if n == 0 { &A1TEXT_0 } else { &A1TEXT_40 };
+        g.add_custom_widget(Rect::new(8, 50, 226, 36), w, st(None, WHITE, SMALL, pad(0, 0)))?;
+        mark(Mark::Build, px);
+        full(g, px);
+        mark(if n == 0 { Mark::Ref } else { Mark::Frame }, px);
+    }
+
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
@@ -581,6 +632,8 @@ fn dirty(g: &mut Gui, px: &mut [u16]) {
 
 #[cfg(target_os = "none")]
 mod firmware {
+    use embedded_gui::{Mask, MaskFormat, Rect};
+
     unsafe extern "C" {
         fn spike_panic(file: *const u8, len: usize, line: u32) -> !;
         /// cdj-2000nxs-mods rust/gui/presentation/asm/copy.S: 32-bit stores in a
@@ -590,6 +643,8 @@ mod firmware {
         /// nonzero, index 255 leaves dst[i] as it is.
         /// bfin/smear.S: one line of the box smear.
         fn spike_smear_line(a: *const SmearArgs);
+        /// bfin/mask1.S: an A1 mask block up to 16 px wide.
+        fn spike_mask1_rows(a: *const Mask1Args);
         /// copy.S: memmove; backwards only when dst lies inside the source.
         fn cdj_gui_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
@@ -605,6 +660,53 @@ mod firmware {
         };
         let n = row.len().min(src.len());
         unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), key) };
+    }
+
+    /// What bfin/mask1.S takes (see its header).
+    #[repr(C)]
+    struct Mask1Args {
+        dst: *mut u16,
+        dstep: usize,
+        src: *const u8,
+        sstep: usize,
+        shift: u32,
+        keep: u32,
+        w: u32,
+        h: u32,
+        ink: u32,
+        src2: *const u8,
+    }
+
+    /// The crate's mask1_rows in assembly for blocks up to 16 px wide (one
+    /// or two mask bytes a row); anything else takes the crate's.
+    pub fn mask1_rows(px: &mut [u16], at: usize, stride: usize, mask: &Mask<'_>, sub: Rect, ink: u16) {
+        let fits = || {
+            let (skip, top) = (u32::try_from(sub.x).ok()?, usize::try_from(sub.y).ok()?);
+            let (w, h) = (sub.w as usize, sub.h as usize);
+            let last = h.checked_sub(1)?;
+            let src = top.checked_mul(mask.stride)?;
+            let dst_end = last.checked_mul(stride)?.checked_add(at)?.checked_add(w)?;
+            let two = usize::from(skip + sub.w > 8);
+            let src_end = last.checked_mul(mask.stride)?.checked_add(src)?.checked_add(1 + two)?;
+            (w != 0 && skip + sub.w <= 16 && mask.format == MaskFormat::A1 && dst_end <= px.len() && src_end <= mask.data.len())
+                .then_some((skip, src, two))
+        };
+        let Some((skip, src, two)) = fits() else {
+            return embedded_gui::render::raw::mask1_rows(px, at, stride, mask, sub, ink);
+        };
+        let a = Mask1Args {
+            dst: unsafe { px.as_mut_ptr().add(at) },
+            dstep: 2 * stride,
+            src: unsafe { mask.data.as_ptr().add(src) },
+            sstep: mask.stride,
+            shift: 16 + skip,
+            keep: u32::MAX << (32 - sub.w),
+            w: sub.w,
+            h: sub.h,
+            ink: ink as u32,
+            src2: unsafe { mask.data.as_ptr().add(src + two) },
+        };
+        unsafe { spike_mask1_rows(&a) };
     }
 
     /// What bfin/smear.S takes (see its header).
