@@ -119,6 +119,10 @@ def main():
     copy = OUT / "copy.o"
     run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", MODS / "rust/gui/presentation/asm/copy.S", "-o", copy)
     objs.append(copy)
+    # The spike's own assembly (the smear's per-pixel loops).
+    smear = OUT / "smear.o"
+    run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", SPIKE / "bfin/smear.S", "-o", smear)
+    objs.append(smear)
     elf = OUT / "spike.elf"
     # Pass 1: the real link (sizes, gates). Pass 2 (sim only): every soft-float
     # helper pass 1 linked is wrapped with a call counter (ld --wrap).
@@ -162,7 +166,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 9  # Frame and Dirty marks
+    nframes = 10  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)

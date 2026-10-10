@@ -27,6 +27,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
         s.fill_row = firmware::fill16;
         s.index_row = firmware::index_row;
         s.move_px = firmware::move_px;
+        s.smear_line = firmware::smear_line;
     }
     s
 }
@@ -538,7 +539,7 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     fb(px).smear_x(detail, 8);
     mark(Mark::Dirty, px);
     fb(px).smear_y(detail, 8);
-    mark(Mark::Ref, px);
+    mark(Mark::Dirty, px);
 
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
@@ -566,6 +567,8 @@ mod firmware {
         fn cdj_gui_fill16(dst: *mut u16, value: u16, count: usize) -> *mut u16;
         /// copy.S: dst[i] = table[src[i]], two pixels an iteration; with key
         /// nonzero, index 255 leaves dst[i] as it is.
+        /// bfin/smear.S: one line of the box smear.
+        fn spike_smear_line(a: *const SmearArgs);
         /// copy.S: memmove; backwards only when dst lies inside the source.
         fn cdj_gui_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
@@ -581,6 +584,62 @@ mod firmware {
         };
         let n = row.len().min(src.len());
         unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), key) };
+    }
+
+    /// What bfin/smear.S takes (see its header).
+    #[repr(C)]
+    struct SmearArgs {
+        out: *mut u16,
+        step: isize,
+        ring: *const u32,
+        ring_len: u32,
+        neg_shift: i32,
+        sum: u32,
+        main: u32,
+        tail: u32,
+        end: u32,
+        lead: *const u16,
+    }
+
+    /// The crate's smear_line with the per-pixel loops in assembly: this side
+    /// checks the line once and fills the window's ring (taps entries).
+    pub fn smear_line(px: &mut [u16], start: usize, step: usize, len: usize, taps: u32) {
+        let shift = match taps {
+            0 | 1 => return,
+            2 | 3 => 1,
+            4..=7 => 2,
+            8..=15 => 3,
+            _ => 4,
+        };
+        let (n, half) = (1usize << shift, 1usize << (shift - 1));
+        let Some(last) = len.checked_sub(1) else { return };
+        if len <= half || last.checked_mul(step).and_then(|o| o.checked_add(start)).is_none_or(|e| e >= px.len()) {
+            return;
+        }
+        let spread = |p: u16| (p as u32 | (p as u32) << 16) & 0x03e0_7c1f;
+        let at = |k: isize| px.get(start + (k.max(0) as usize).min(last) * step).copied().unwrap_or(0);
+        // Slot i holds pixel i - half: it leaves the window at step i.
+        let mut ring = [0u32; 16];
+        let mut sum = 0;
+        for (i, r) in ring.iter_mut().take(n).enumerate() {
+            *r = spread(at(i as isize - half as isize));
+            sum += *r;
+        }
+        let end = spread(at(last as isize));
+        let out = unsafe { px.as_mut_ptr().add(start) };
+        let a = SmearArgs {
+            out,
+            step: (2 * step) as isize,
+            ring: ring.as_ptr(),
+            ring_len: 4 * n as u32,
+            neg_shift: -(shift as i32),
+            sum,
+            main: (len - half) as u32,
+            tail: half as u32,
+            end,
+            lead: out.wrapping_add(half * step),
+        };
+        unsafe { spike_smear_line(&a) };
     }
 
     /// The crate's bounds check, then the firmware memmove (bytes).

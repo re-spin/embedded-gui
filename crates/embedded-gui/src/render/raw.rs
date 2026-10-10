@@ -296,6 +296,9 @@ pub struct Rgb555Surface<'a> {
     pub index_row: fn(&mut [u16], &[u8], &[u16; 256], Option<u8>),
     /// memmove of `n` pixels from index `src` to `dst` (default: [`move_px`]).
     pub move_px: fn(&mut [u16], usize, usize, usize),
+    /// One line of [`Self::smear_x`]/[`Self::smear_y`]: `(px, start, step,
+    /// len, taps)` (default: [`smear_line`]).
+    pub smear_line: fn(&mut [u16], usize, usize, usize, u32),
 }
 
 impl<'a> Rgb555Surface<'a> {
@@ -307,6 +310,7 @@ impl<'a> Rgb555Surface<'a> {
             fill_row: |row, v| row.fill(v),
             index_row: indexed_row,
             move_px,
+            smear_line,
         }
     }
 
@@ -331,7 +335,7 @@ impl<'a> Rgb555Surface<'a> {
         let r = self.bounded(rect);
         let stride = self.w as usize;
         for y in r.y..r.bottom() {
-            smear(
+            (self.smear_line)(
                 self.px,
                 y as usize * stride + r.x as usize,
                 1,
@@ -346,7 +350,7 @@ impl<'a> Rgb555Surface<'a> {
         let r = self.bounded(rect);
         let stride = self.w as usize;
         for x in r.x..r.right() {
-            smear(
+            (self.smear_line)(
                 self.px,
                 r.y as usize * stride + x as usize,
                 stride,
@@ -357,11 +361,13 @@ impl<'a> Rgb555Surface<'a> {
     }
 }
 
-/// Box blur of the `len` pixels at `start`, `start + step`, ... in place.
+/// Box blur of the `len` pixels at `start`, `start + step`, ... in place,
+/// `taps` wide (rounded down to 2, 4, 8 or 16), edges repeated. A line no
+/// longer than half the window is left as is.
 /// The three 5-bit channels are summed side by side (see [`blend555`]) with
 /// room for 32 pixels; a 16-entry ring keeps the originals the window still
 /// needs after they are overwritten.
-fn smear(px: &mut [u16], start: usize, step: usize, len: usize, taps: u32) {
+pub fn smear_line(px: &mut [u16], start: usize, step: usize, len: usize, taps: u32) {
     match taps {
         0 | 1 => {}
         2 | 3 => smear_n::<1>(px, start, step, len),
@@ -371,7 +377,7 @@ fn smear(px: &mut [u16], start: usize, step: usize, len: usize, taps: u32) {
     }
 }
 
-/// [`smear`] over `1 << SHIFT` taps.
+/// [`smear_line`] over `1 << SHIFT` taps.
 fn smear_n<const SHIFT: u32>(px: &mut [u16], start: usize, step: usize, len: usize) {
     const SPREAD: u32 = 0x03e0_7c1f;
     let spread = |p: u16| (p as u32 | (p as u32) << 16) & SPREAD;
