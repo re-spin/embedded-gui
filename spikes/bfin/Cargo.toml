@@ -1,0 +1,34 @@
+# Feasibility spike only: embedded-gui on the CDJ-2000NXS BF531 GUI board.
+# Standalone workspace; built for bfin-cdj-gui by bfin/run.py.
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "egui-bfin-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["rlib"]  # bfin: cargo rustc --crate-type staticlib
+
+[[bin]]
+name = "host"
+path = "src/host.rs"
+
+[dependencies]
+# libm: no_std embedded-gui refuses to build without a float math backend.
+embedded-gui = { path = "../../crates/embedded-gui", default-features = false, features = ["libm"] }
+embedded-graphics-core = "0.4.1"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"
+
+[profile.gui-firmware]
+inherits = "release"
+
+[workspace]

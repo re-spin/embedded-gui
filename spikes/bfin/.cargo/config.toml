@@ -1,0 +1,3 @@
+# Same bfin flags as cdj-2000nxs-mods/rust/.cargo/config.toml.
+[target.bfin-cdj-gui]
+rustflags = ["-Zunstable-options", "-Zcodegen-backend=gcc", "-Cllvm-args=-Wno-attributes", "-Cllvm-args=-mcpu=bf531"]

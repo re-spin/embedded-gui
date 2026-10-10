@@ -1,0 +1,4 @@
+# The cdj-2000nxs toolchain (rustc + codegen_gcc for Blackfin), set up by
+# cdj-2000nxs-mods/tools/setup-macos.py.
+[toolchain]
+channel = "cdj-2000nxs"
