@@ -71,6 +71,8 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | | 32-widget tree walk (flag scan) | 32.4k | 33.3k |
 | `RawImage::Rgb555` (opaque rows) + `copy_px` hook (`cdj_gui_memcpy`) | 480x90 opaque picture | 568k (Argb1555) | 101k |
 | Linear gradient `t` stepped (one divide per fill, not per row/column) | browse full / player full | 806k / 1.32M | 634k / 1.14M |
+| `fill_rect` skips `fill_rounded_rect_alpha` at the base transform/layer | `fill_rect` 1x1 / 16x16 (probe) | 580 / 1.92k | 421 / 1.76k |
+| | player full / 400 waveform columns | 1.14M / 405k | 992k / 336k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

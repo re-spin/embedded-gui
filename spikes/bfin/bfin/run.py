@@ -49,6 +49,10 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build A1 text, none", "ref: A1 text widget, no glyphs (render)",
           "ref: build photo argb1555", "ref: 480x90 opaque Argb1555 (render)",
           "ref: build photo rgb555", "ref: 480x90 Rgb555 (render)",
+          "ref: build probe", "ref: probe, no fills (render)",
+          "ref: build probe 1x1", "ref: 50 fill_rect 1x1 (render)",
+          "ref: build probe 16x16", "ref: 50 fill_rect 16x16 (render)",
+          "ref: build probe 480x1", "ref: 50 fill_rect 480x1 (render)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -238,6 +242,8 @@ def main():
                      - cyc["ref: A1 text widget, no glyphs (render)"]) // 40,
         "argb1555_480x90": cyc["ref: 480x90 opaque Argb1555 (render)"],
         "rgb555_480x90": cyc["ref: 480x90 Rgb555 (render)"],
+        **{f"fill_{k}": (cyc[f"ref: 50 fill_rect {k} (render)"] - cyc["ref: probe, no fills (render)"]) // 50
+           for k in ("1x1", "16x16", "480x1")},
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

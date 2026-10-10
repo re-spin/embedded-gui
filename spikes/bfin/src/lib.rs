@@ -400,6 +400,24 @@ impl CustomWidget for Photo {
     }
 }
 
+/// respin-ui's probe: `n` fill_rects of `w`x`h` through the canvas, on screen.
+pub struct FillProbe(pub u32, pub u32, pub u32);
+static PROBES: [FillProbe; 4] = [FillProbe(0, 1, 1), FillProbe(50, 1, 1), FillProbe(50, 16, 16), FillProbe(50, 480, 1)];
+
+impl CustomWidget for FillProbe {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let (mut x, mut y) = (r.x, r.y);
+        for _ in 0..self.0 {
+            c.fill_rect(Rect::new(x, y, self.1, self.2), WHITE)?;
+            x += 3;
+            if x + self.1 as i32 > r.right() {
+                (x, y) = (r.x, y + 1);
+            }
+        }
+        Ok(())
+    }
+}
+
 // ── screens ──────────────────────────────────────────────────────────────────
 
 /// ~1.2 KB per node slot (eight per-node side tables): keep it static, not on the stack.
@@ -666,6 +684,16 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
         mark(Mark::Build, px);
         full(g, px);
         mark(if photo.0 { Mark::Frame } else { Mark::Ref }, px);
+    }
+
+    // fill_rect probes: none, then 50 of 1x1, 16x16, 480x1 (per call =
+    // difference / 50).
+    for probe in &PROBES {
+        let g = Gui::init_in_place(slot, view);
+        g.add_custom_widget(view, probe, st(None, WHITE, SMALL, pad(0, 0)))?;
+        mark(Mark::Build, px);
+        full(g, px);
+        mark(Mark::Ref, px);
     }
 
     // The same label with no text: the difference / 21 is the cost per glyph.

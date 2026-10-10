@@ -527,6 +527,17 @@ where
     }
 
     pub fn fill_rect(&mut self, rect: impl Into<Rect>, color: Rgb565) -> Result<(), D::Error> {
+        let rect = rect.into();
+        // Stack slot 0 is never written: the base transform and layer, so a
+        // plain fill with none of fill_rounded_rect_alpha's setup.
+        if self.transform_len == 1 && self.layer_len == 1 {
+            let draw = self.visible_rect(rect);
+            if draw.is_empty() {
+                return Ok(());
+            }
+            let ink = C::ink(self.target, color);
+            return C::fill(self.target, draw, ink);
+        }
         self.fill_rect_alpha(rect, color, 255)
     }
 
