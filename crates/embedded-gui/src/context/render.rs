@@ -563,7 +563,26 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
         C: crate::render::Compositor<D>,
     {
-        for node in &self.widgets {
+        // The last opaque node covering the whole pass hides everything
+        // painted before it.
+        let region = ctx
+            .dirty_rect()
+            .map_or(ctx.clip(), |d| d.intersection(ctx.clip()));
+        let first = self
+            .widgets
+            .iter()
+            .rposition(|n| {
+                n.flags.contains(crate::widget::WidgetFlags::OPAQUE)
+                    && n.rect.w >= region.w
+                    && n.rect.h >= region.h
+                    && self.placement(n.id).is_some_and(|(r, c)| {
+                        let r = Rect::new(r.x + offset_x, r.y + offset_y, r.w, r.h);
+                        let c = Rect::new(c.x + offset_x, c.y + offset_y, c.w, c.h);
+                        r.intersection(c).contains_rect(region)
+                    })
+            })
+            .unwrap_or(0);
+        for node in self.widgets.get(first..).unwrap_or_default() {
             let Some((base_rect, base_clip)) = self.placement(node.id) else {
                 continue;
             };

@@ -386,6 +386,7 @@ pub fn browse(g: &mut Gui) -> Result<[WidgetId; ROWS], GuiError> {
     for (i, row) in rows.iter_mut().enumerate() {
         let y = 20 + (i as u32 * ROW_H) as i32;
         *row = g.add_label(Rect::new(0, y, LIST_W, ROW_H), ARTISTS[i], row_style(i, i == 0))?;
+        g.set_flag(*row, WidgetFlags::OPAQUE, true)?;
     }
     g.add_panel(Rect::new(LIST_W as i32, 20, W - LIST_W, ROWS as u32 * ROW_H), st(Some(rgb(0xe8e8e8)), BLACK, PANE, pad(0, 0)))?;
     for (i, t) in TRACKS.iter().enumerate() {

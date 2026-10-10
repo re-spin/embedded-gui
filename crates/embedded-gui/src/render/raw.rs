@@ -1337,6 +1337,61 @@ mod tests {
     }
 
     #[test]
+    fn opaque_widget_hides_what_is_under_it() {
+        use core::cell::Cell;
+        // Counts its renders and fills its rect with one colour.
+        struct Solid(Cell<u32>, Rgb565);
+        unsafe impl Sync for Solid {}
+        impl crate::widget::CustomWidget for Solid {
+            fn render(
+                &self,
+                c: &mut dyn crate::widget::CustomCanvas,
+                r: Rect,
+                _: &crate::style::WidgetStyle,
+                _: crate::style::VisualState,
+            ) -> Result<(), crate::GuiError> {
+                self.0.set(self.0.get() + 1);
+                c.fill_rect(r, self.1)
+            }
+        }
+        static BACK: Solid = Solid(Cell::new(0), Rgb565::new(31, 0, 0));
+        static ROW: Solid = Solid(Cell::new(0), Rgb565::new(0, 63, 0));
+        let mut g = tree();
+        g.add_custom_widget(Rect::new(0, 0, 40, 20), &BACK, crate::style::Style::new())
+            .unwrap();
+        let row = g
+            .add_custom_widget(Rect::new(4, 4, 30, 8), &ROW, crate::style::Style::new())
+            .unwrap();
+        g.set_flag(row, crate::widget::WidgetFlags::OPAQUE, true)
+            .unwrap();
+        let mut full = vec![0u16; 40 * 20];
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut full, 40, 20))
+            .unwrap();
+        // Damage inside the row: only the row paints, and the pixels match.
+        for (damage, back_paints) in [
+            (Rect::new(6, 5, 10, 3), 0),
+            (Rect::new(4, 4, 30, 8), 0),
+            (Rect::new(2, 5, 10, 3), 1),
+        ] {
+            let mut px = full.clone();
+            px[5 * 40 + 6..5 * 40 + 12].fill(0x1234);
+            px[5 * 40 + 2..5 * 40 + 4].fill(0x1234);
+            BACK.0.set(0);
+            ROW.0.set(0);
+            g.clear_dirty();
+            g.damage_rect(damage).unwrap();
+            g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+                .unwrap();
+            assert_eq!((BACK.0.get(), ROW.0.get()), (back_paints, 1), "{damage:?}");
+            if back_paints == 1 {
+                assert!(px == full, "{damage:?}");
+            } else {
+                assert!(px[5 * 40 + 6..5 * 40 + 12] == full[5 * 40 + 6..5 * 40 + 12]);
+            }
+        }
+    }
+
+    #[test]
     fn damage_rect_repaints_only_that_area() {
         let red = crate::style::Style::new().with_background(Some(Rgb565::new(31, 0, 0)));
         let mut g = tree();

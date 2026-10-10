@@ -66,6 +66,9 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | | A1 16x16 glyph, one `draw_raw_image` each | ~5.9k ⁴ | 1.60k |
 | | browse full / one row text / selection | 985k / 72.4k / 130k | 805k / 49.7k / 89.1k |
 | | player full / 32-widget tree full | 1.38M / 596k | 1.32M / 468k |
+| 256-entry palette used as the indexed8 table | 6 raw images (2 indexed8) | 108.6k | 106.2k |
+| `WidgetFlags::OPAQUE` (browse rows flagged) | one row text / row slide | 50.2k / 536k | 43.4k / 526k |
+| | 32-widget tree walk (flag scan) | 32.4k | 33.3k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

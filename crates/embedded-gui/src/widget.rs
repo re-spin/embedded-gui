@@ -18,6 +18,10 @@ impl WidgetFlags {
     pub const WHOLE_GLYPHS: Self = Self(1 << 7);
     /// A ScrollView draws no scroll thumb.
     pub const NO_SCROLLBAR: Self = Self(1 << 8);
+    /// The widget paints every pixel of its rect opaquely, so a render pass
+    /// whose damage it covers starts at it and skips what it hides (the
+    /// parent's background, earlier siblings).
+    pub const OPAQUE: Self = Self(1 << 9);
 
     pub const fn empty() -> Self {
         Self(0)
