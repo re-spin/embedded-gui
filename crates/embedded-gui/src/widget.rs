@@ -250,6 +250,12 @@ pub trait CustomCanvas {
         color: embedded_graphics_core::pixelcolor::Rgb565,
         font: crate::font::FontId,
     ) -> Result<(), crate::GuiError>;
+    /// The area drawing can reach in this pass: the clip (already narrowed to
+    /// the widget's rect) ∩ the damage. A widget can skip work outside it.
+    /// Canvases that don't track it report a rect covering everything.
+    fn clip(&self) -> Rect {
+        Rect::new(-(1 << 29), -(1 << 29), 1 << 30, 1 << 30)
+    }
     /// `text` laid out in `rect` like a Label: alignment, wrapping, width-fitted
     /// ellipsis, clipped to `rect`. Canvases without layout draw it at the
     /// rect's top-left.

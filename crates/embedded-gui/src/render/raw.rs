@@ -796,6 +796,8 @@ mod tests {
                 _: &crate::style::WidgetStyle,
                 _: crate::style::VisualState,
             ) -> Result<(), crate::GuiError> {
+                // The widget's own rect narrows the clip; the pass has no damage.
+                assert_eq!(c.clip(), r);
                 c.fill_rect(
                     Rect::new(r.x - 2, r.y + 4, r.w + 4, 1),
                     Rgb565::new(31, 0, 0),

@@ -2774,6 +2774,13 @@ where
             .map_err(|_| crate::GuiError::Drawing)
     }
 
+    fn clip(&self) -> Rect {
+        let clip = self.ctx.clip();
+        self.ctx
+            .dirty_rect()
+            .map_or(clip, |dirty| clip.intersection(dirty))
+    }
+
     fn draw_text_in(
         &mut self,
         rect: Rect,
