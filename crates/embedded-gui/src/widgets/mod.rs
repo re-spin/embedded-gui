@@ -813,6 +813,22 @@ impl<'a> WidgetNode<'a> {
         D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
         C: Compositor<D>,
     {
+        self.render_at_styled(ctx, rect, state, &self.style)
+    }
+
+    /// [`WidgetNode::render_at`] with `style` in place of the node's own (borrowed:
+    /// no per-node copy of the node or its styles).
+    pub fn render_at_styled<D, C>(
+        &self,
+        ctx: &mut RenderCtx<'_, D, C>,
+        rect: Rect,
+        state: VisualState,
+        style: &WidgetStyle,
+    ) -> Result<(), D::Error>
+    where
+        D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
+        C: Compositor<D>,
+    {
         if self.hidden() {
             return Ok(());
         }
@@ -820,34 +836,30 @@ impl<'a> WidgetNode<'a> {
         match self.kind {
             WidgetKind::Custom(c) => {
                 let mut canvas = crate::render::RenderCtxCanvas { ctx };
-                let _ = c.widget.render(&mut canvas, rect, &self.style, state);
+                let _ = c.widget.render(&mut canvas, rect, style, state);
                 Ok(())
             }
-            WidgetKind::Panel => render_panel(ctx, rect, self.style, state),
-            WidgetKind::Label(text) => render_label(ctx, rect, text, self.style),
-            WidgetKind::Button(text) => render_button(ctx, rect, text, self.style, state),
-            WidgetKind::ProgressBar { value } => {
-                render_progress(ctx, rect, value, self.style, state)
-            }
+            WidgetKind::Panel => render_panel(ctx, rect, style, state),
+            WidgetKind::Label(text) => render_label(ctx, rect, text, style),
+            WidgetKind::Button(text) => render_button(ctx, rect, text, style, state),
+            WidgetKind::ProgressBar { value } => render_progress(ctx, rect, value, style, state),
             #[cfg(feature = "rich-widgets")]
-            WidgetKind::Toggle { label, on } => {
-                render_toggle(ctx, rect, label, on, self.style, state)
-            }
+            WidgetKind::Toggle { label, on } => render_toggle(ctx, rect, label, on, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Checkbox { label, checked } => {
-                render_checkbox(ctx, rect, label, checked, self.style, state)
+                render_checkbox(ctx, rect, label, checked, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Slider { value, min, max } => {
-                render_slider(ctx, rect, value, min, max, self.style, state)
+                render_slider(ctx, rect, value, min, max, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::ValueLabel { label, value } => {
-                render_value_label(ctx, rect, label, value, self.style, state)
+                render_value_label(ctx, rect, label, value, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::IconButton { icon, label } => {
-                render_icon_button(ctx, rect, icon, label, self.style, state)
+                render_icon_button(ctx, rect, icon, label, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::List {
@@ -862,7 +874,7 @@ impl<'a> WidgetNode<'a> {
                 selected,
                 offset,
                 visible_rows,
-                self.style,
+                style,
                 state,
             ),
             WidgetKind::CircularList {
@@ -877,29 +889,29 @@ impl<'a> WidgetNode<'a> {
                 selected,
                 offset,
                 visible_rows,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::ScrollView {
                 offset_y,
                 content_h,
-            } => render_scroll_view(ctx, rect, offset_y, content_h, self.style, state),
+            } => render_scroll_view(ctx, rect, offset_y, content_h, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Tabs { labels, selected } => {
-                render_tabs(ctx, rect, labels, selected, self.style, state)
+                render_tabs(ctx, rect, labels, selected, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Dialog { title, body } => {
-                render_dialog(ctx, rect, title, body, self.style, state)
+                render_dialog(ctx, rect, title, body, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Toast { text, ttl_ms } => {
-                render_toast(ctx, rect, text, ttl_ms, self.style, state)
+                render_toast(ctx, rect, text, ttl_ms, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Meter { value, min, max } => {
-                render_meter(ctx, rect, value, min, max, self.style, state)
+                render_meter(ctx, rect, value, min, max, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::ArcGauge {
@@ -926,7 +938,7 @@ impl<'a> WidgetNode<'a> {
                 major_ticks,
                 minor_ticks,
                 show_value,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -946,7 +958,7 @@ impl<'a> WidgetNode<'a> {
                 major_ticks,
                 minor_ticks,
                 show_value,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -956,9 +968,7 @@ impl<'a> WidgetNode<'a> {
                 max,
                 start_deg,
                 end_deg,
-            } => render_gauge_needle(
-                ctx, rect, value, min, max, start_deg, end_deg, self.style, state,
-            ),
+            } => render_gauge_needle(ctx, rect, value, min, max, start_deg, end_deg, style, state),
             WidgetKind::SweepingArc {
                 progress,
                 clockwise,
@@ -1005,7 +1015,7 @@ impl<'a> WidgetNode<'a> {
                 show_grid,
                 show_axes,
                 show_labels,
-                self.style,
+                style,
                 state,
             ),
             WidgetKind::Plotter {
@@ -1017,19 +1027,18 @@ impl<'a> WidgetNode<'a> {
                 show_grid,
                 show_axes,
             } => render_plotter(
-                ctx, rect, values, head, min, max, thickness, show_grid, show_axes, self.style,
-                state,
+                ctx, rect, values, head, min, max, thickness, show_grid, show_axes, style, state,
             ),
-            WidgetKind::Spinner { phase } => render_spinner(ctx, rect, phase, self.style, state),
+            WidgetKind::Spinner { phase } => render_spinner(ctx, rect, phase, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Dropdown {
                 items,
                 selected,
                 open,
-            } => render_dropdown(ctx, rect, items, selected, open, self.style, state),
+            } => render_dropdown(ctx, rect, items, selected, open, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Roller { items, selected } => {
-                render_roller(ctx, rect, items, selected, self.style, state)
+                render_roller(ctx, rect, items, selected, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Table {
@@ -1044,7 +1053,7 @@ impl<'a> WidgetNode<'a> {
                 separators,
                 cell_padding,
                 align,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -1076,7 +1085,7 @@ impl<'a> WidgetNode<'a> {
                     tick_color,
                     needle_color,
                 };
-                scale.render(ctx, rect, self.style, state)
+                scale.render(ctx, rect, *style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Spinbox {
@@ -1097,7 +1106,7 @@ impl<'a> WidgetNode<'a> {
                     decimals,
                     focused_digit,
                 };
-                spinbox.render(ctx, rect, self.style, state)
+                spinbox.render(ctx, rect, *style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::TextArea {
@@ -1116,7 +1125,7 @@ impl<'a> WidgetNode<'a> {
                 placeholder,
                 selection,
                 cursor_visible,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -1128,24 +1137,22 @@ impl<'a> WidgetNode<'a> {
                 layout,
                 ..
             } => render_keyboard(
-                ctx, rect, keys, selected, cols, alt_keys, layout, self.style, state,
+                ctx, rect, keys, selected, cols, alt_keys, layout, style, state,
             ),
-            WidgetKind::Image { image, fit } => {
-                render_image(ctx, rect, image, fit, self.style, state)
-            }
+            WidgetKind::Image { image, fit } => render_image(ctx, rect, image, fit, style, state),
             WidgetKind::Carousel {
                 items,
                 selected,
                 spec,
-            } => render_carousel(ctx, rect, items, selected, &spec, self.style, state),
+            } => render_carousel(ctx, rect, items, selected, &spec, style, state),
             WidgetKind::CompositeIcon { parts, spec } => {
-                render_composite_icon(ctx, rect, parts, &spec, self.style, state)
+                render_composite_icon(ctx, rect, parts, &spec, style, state)
             }
-            WidgetKind::Border => ctx.stroke_rect(rect, self.style.resolve(state).border),
+            WidgetKind::Border => ctx.stroke_rect(rect, style.resolve(state).border),
             WidgetKind::Spacer => Ok(()),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Menu { items, selected } => {
-                render_menu(ctx, rect, items, selected, self.style, state)
+                render_menu(ctx, rect, items, selected, style, state)
             }
             #[cfg(feature = "rich-widgets")]
             WidgetKind::RichMenu {
@@ -1160,7 +1167,7 @@ impl<'a> WidgetNode<'a> {
                 selected,
                 offset,
                 visible_rows,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -1169,33 +1176,20 @@ impl<'a> WidgetNode<'a> {
                 title,
                 subtitle,
                 progress,
-            } => render_peek_reveal(
-                ctx, rect, icon, title, subtitle, progress, self.style, state,
-            ),
+            } => render_peek_reveal(ctx, rect, icon, title, subtitle, progress, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::GlanceTile {
                 icon,
                 title,
                 subtitle,
                 highlighted,
-            } => render_glance_tile(
-                ctx,
-                rect,
-                icon,
-                title,
-                subtitle,
-                highlighted,
-                self.style,
-                state,
-            ),
+            } => render_glance_tile(ctx, rect, icon, title, subtitle, highlighted, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::CardDeck { titles, selected } => {
-                render_card_deck(ctx, rect, titles, selected, self.style, state)
+                render_card_deck(ctx, rect, titles, selected, style, state)
             }
             #[cfg(feature = "rich-widgets")]
-            WidgetKind::Reel { player, fit } => {
-                render_reel(ctx, rect, player, fit, self.style, state)
-            }
+            WidgetKind::Reel { player, fit } => render_reel(ctx, rect, player, fit, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::StateSurface {
                 state: surface_state,
@@ -1211,7 +1205,7 @@ impl<'a> WidgetNode<'a> {
                 message,
                 action,
                 busy_phase,
-                self.style,
+                style,
                 state,
             ),
             #[cfg(feature = "rich-widgets")]
@@ -1219,7 +1213,7 @@ impl<'a> WidgetNode<'a> {
                 level,
                 text,
                 ttl_ms,
-            } => render_heads_up_banner(ctx, rect, level, text, ttl_ms, self.style, state),
+            } => render_heads_up_banner(ctx, rect, level, text, ttl_ms, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::NotificationActionSheet {
                 level,
@@ -1229,7 +1223,7 @@ impl<'a> WidgetNode<'a> {
                 selected,
                 open,
             } => render_notification_action_sheet(
-                ctx, rect, level, title, body, actions, selected, open, self.style, state,
+                ctx, rect, level, title, body, actions, selected, open, style, state,
             ),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::FeedTimeline {
@@ -1246,11 +1240,11 @@ impl<'a> WidgetNode<'a> {
                 offset,
                 visible_rows,
                 expanded,
-                self.style,
+                style,
                 state,
             ),
             WidgetKind::Dial { value, min, max } => {
-                render_dial(ctx, rect, value, min, max, self.style, state)
+                render_dial(ctx, rect, value, min, max, style, state)
             }
             WidgetKind::RlePlayer {
                 rle_data,
@@ -1265,7 +1259,7 @@ impl<'a> WidgetNode<'a> {
                 current_frame,
                 frame_width,
                 frame_height,
-                self.style,
+                style,
                 state,
             ),
             WidgetKind::AutoComplete {
@@ -1285,7 +1279,7 @@ impl<'a> WidgetNode<'a> {
                 filter_count,
                 selected,
                 expanded,
-                self.style,
+                style,
                 state,
             ),
         }
@@ -1311,7 +1305,7 @@ fn default_flags(kind: WidgetKind<'_>) -> WidgetFlags {
 fn render_panel<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1326,7 +1320,7 @@ fn render_label<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
     text: &str,
-    style: WidgetStyle,
+    style: &WidgetStyle,
 ) -> Result<(), D::Error>
 where
     D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
@@ -1347,7 +1341,7 @@ fn render_button<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
     text: &str,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1371,7 +1365,7 @@ fn render_progress<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
     value: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1400,7 +1394,7 @@ fn render_toggle<D, C>(
     rect: Rect,
     label: &str,
     on: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1444,7 +1438,7 @@ fn render_checkbox<D, C>(
     rect: Rect,
     label: &str,
     checked: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1488,7 +1482,7 @@ fn render_slider<D, C>(
     value: f32,
     min: f32,
     max: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1513,7 +1507,7 @@ fn render_dial<D, C>(
     value: f32,
     min: f32,
     max: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1560,7 +1554,7 @@ fn render_rle_player<D, C>(
     current_frame: usize,
     frame_w: u16,
     frame_h: u16,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1658,7 +1652,7 @@ fn render_autocomplete<D, C>(
     filter_count: u8,
     selected: Option<usize>,
     expanded: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1746,7 +1740,7 @@ fn render_value_label<D, C>(
     rect: Rect,
     label: &str,
     value: i32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1781,7 +1775,7 @@ fn render_icon_button<D, C>(
     rect: Rect,
     icon: char,
     label: &str,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1817,7 +1811,7 @@ fn render_list<D, C>(
     selected: usize,
     offset: usize,
     visible_rows: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1879,7 +1873,7 @@ fn render_circular_list<D, C>(
     selected: usize,
     offset: usize,
     visible_rows: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1957,7 +1951,7 @@ fn render_scroll_view<D, C>(
     rect: Rect,
     offset_y: i32,
     content_h: u32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -1987,7 +1981,7 @@ fn render_tabs<D, C>(
     rect: Rect,
     labels: &[&str],
     selected: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2027,7 +2021,7 @@ fn render_dialog<D, C>(
     rect: Rect,
     title: &str,
     body: &str,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2068,7 +2062,7 @@ fn render_toast<D, C>(
     rect: Rect,
     text: &str,
     ttl_ms: u32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2110,7 +2104,7 @@ fn render_meter<D, C>(
     value: f32,
     min: f32,
     max: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2162,7 +2156,7 @@ fn render_arc_gauge<D, C>(
     major_ticks: u8,
     minor_ticks: u8,
     show_value: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2263,7 +2257,7 @@ fn render_gauge<D, C>(
     major_ticks: u8,
     minor_ticks: u8,
     show_value: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2298,7 +2292,7 @@ fn render_gauge_needle<D, C>(
     max: f32,
     start_deg: i32,
     end_deg: i32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2353,7 +2347,7 @@ fn render_chart<D, C>(
     show_grid: bool,
     show_axes: bool,
     show_labels: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2497,7 +2491,7 @@ fn render_plotter<D, C>(
     thickness: u8,
     show_grid: bool,
     show_axes: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2575,7 +2569,7 @@ fn render_spinner<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
     phase: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2609,7 +2603,7 @@ fn render_dropdown<D, C>(
     items: &[&str],
     selected: usize,
     open: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2671,7 +2665,7 @@ fn render_roller<D, C>(
     rect: Rect,
     items: &[&str],
     selected: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2718,7 +2712,7 @@ fn render_table<D, C>(
     separators: bool,
     cell_padding: u8,
     align: TextAlign,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2844,7 +2838,7 @@ fn render_textarea<D, C>(
     placeholder: &str,
     selection: Option<(usize, usize)>,
     cursor_visible: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -2936,7 +2930,7 @@ fn render_keyboard<D, C>(
     cols: u8,
     alt_keys: Option<&[char]>,
     layout: KeyboardLayout,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3011,7 +3005,7 @@ fn render_menu<D, C>(
     rect: Rect,
     items: &[&str],
     selected: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3089,7 +3083,7 @@ fn render_rich_menu<D, C>(
     selected: usize,
     offset: usize,
     visible_rows: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3214,7 +3208,7 @@ fn render_image<D, C>(
     rect: Rect,
     image: ImageRef<'_>,
     fit: ImageFit,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3233,7 +3227,7 @@ fn render_carousel<D, C>(
     items: &[&str],
     selected: usize,
     spec: &CarouselSpec,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3339,7 +3333,7 @@ fn render_composite_icon<D, C>(
     rect: Rect,
     parts: &[IconPart<'_>],
     spec: &CompositeIconSpec,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3421,7 +3415,7 @@ fn render_peek_reveal<D, C>(
     title: &str,
     subtitle: &str,
     progress: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3474,7 +3468,7 @@ fn render_glance_tile<D, C>(
     title: &str,
     subtitle: &str,
     highlighted: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3526,7 +3520,7 @@ fn render_card_deck<D, C>(
     rect: Rect,
     titles: &[&str],
     selected: usize,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3555,7 +3549,7 @@ fn render_reel<D, C>(
     rect: Rect,
     player: ReelPlayer<'_>,
     fit: ImageFit,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3602,7 +3596,7 @@ fn render_state_surface<D, C>(
     message: &str,
     action: Option<&str>,
     busy_phase: f32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3684,7 +3678,7 @@ fn render_heads_up_banner<D, C>(
     level: NotificationLevel,
     text: &str,
     ttl_ms: u32,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3723,7 +3717,7 @@ fn render_notification_action_sheet<D, C>(
     actions: &[&str],
     selected: usize,
     open: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where
@@ -3792,7 +3786,7 @@ fn render_feed_timeline<D, C>(
     offset: usize,
     visible_rows: usize,
     expanded: bool,
-    style: WidgetStyle,
+    style: &WidgetStyle,
     state: VisualState,
 ) -> Result<(), D::Error>
 where

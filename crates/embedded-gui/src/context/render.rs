@@ -343,26 +343,10 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             VisualState::Normal
         };
 
-        let mut render_node = *node;
-        let class_style = node.style_class.and_then(|class| {
-            self.class_styles
-                .iter()
-                .find(|(class_id, _)| *class_id == class)
-                .map(|(_, style)| *style)
-        });
-        let resolve_state_style = |vs: VisualState| {
-            class_style
-                .map(|style| style.resolve(vs))
-                .unwrap_or_else(|| render_node.style.resolve(vs))
-        };
-        let active_style = if let Some((from, to, t)) = self.state_transition_progress(id) {
-            lerp_style(resolve_state_style(from), resolve_state_style(to), t)
-        } else {
-            resolve_state_style(state)
-        };
-        render_node.style = render_node.style.with_state_override(state, active_style);
-
-        render_node.render_at(ctx, bounds, state)?;
+        let owned = self.effective_style(node, state, 255);
+        let style = owned.as_ref().unwrap_or(&node.style);
+        let active_style = style.resolve(state);
+        node.render_at_styled(ctx, bounds, state, style)?;
         ctx.set_clip(old_clip);
 
         let is_opaque_cover = active_style.background.is_some()
@@ -416,6 +400,43 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.render_into(&mut ctx, offset_x, offset_y, opacity)
     }
 
+    /// The style `node` renders with in `state`: `None` means its own (borrowed,
+    /// no copy); a style is built only when a class, a state transition or the
+    /// pass `opacity` changes it.
+    fn effective_style(
+        &self,
+        node: &crate::widgets::WidgetNode<'a>,
+        state: VisualState,
+        opacity: u8,
+    ) -> Option<crate::style::WidgetStyle> {
+        let class_style = node.style_class.and_then(|class| {
+            self.class_styles
+                .iter()
+                .find(|(id, _)| *id == class)
+                .map(|(_, style)| style)
+        });
+        let transition = self.state_transition_progress(node.id);
+        if class_style.is_none() && transition.is_none() && opacity == 255 {
+            return None;
+        }
+        let resolve_state_style = |vs: VisualState| class_style.unwrap_or(&node.style).resolve(vs);
+        let active_style = match transition {
+            Some((from, to, t)) => {
+                lerp_style(resolve_state_style(from), resolve_state_style(to), t)
+            }
+            None => resolve_state_style(state),
+        };
+        let mut style = node.style.with_state_override(state, active_style);
+        if opacity < 255 {
+            let apply = |v: u8| -> u8 { ((v as u16 * opacity as u16) / 255) as u8 };
+            style.normal.opacity = apply(style.normal.opacity);
+            style.focused.opacity = apply(style.focused.opacity);
+            style.pressed.opacity = apply(style.pressed.opacity);
+            style.disabled.opacity = apply(style.disabled.opacity);
+        }
+        Some(style)
+    }
+
     pub(crate) fn render_into<D, C>(
         &self,
         ctx: &mut RenderCtx<'_, D, C>,
@@ -467,33 +488,8 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             } else {
                 VisualState::Normal
             };
-            let mut render_node = *node;
-            let class_style = node.style_class.and_then(|class| {
-                self.class_styles
-                    .iter()
-                    .find(|(id, _)| *id == class)
-                    .map(|(_, style)| *style)
-            });
-            let resolve_state_style = |vs: VisualState| {
-                class_style
-                    .map(|style| style.resolve(vs))
-                    .unwrap_or_else(|| render_node.style.resolve(vs))
-            };
-            let active_style = if let Some((from, to, t)) = self.state_transition_progress(node.id)
-            {
-                lerp_style(resolve_state_style(from), resolve_state_style(to), t)
-            } else {
-                resolve_state_style(state)
-            };
-            render_node.style = render_node.style.with_state_override(state, active_style);
-            if opacity < 255 {
-                let apply = |v: u8| -> u8 { ((v as u16 * opacity as u16) / 255) as u8 };
-                render_node.style.normal.opacity = apply(render_node.style.normal.opacity);
-                render_node.style.focused.opacity = apply(render_node.style.focused.opacity);
-                render_node.style.pressed.opacity = apply(render_node.style.pressed.opacity);
-                render_node.style.disabled.opacity = apply(render_node.style.disabled.opacity);
-            }
-            render_node.render_at(ctx, rect, state)?;
+            let owned = self.effective_style(node, state, opacity);
+            node.render_at_styled(ctx, rect, state, owned.as_ref().unwrap_or(&node.style))?;
             ctx.set_clip(old_clip);
         }
         Ok(())

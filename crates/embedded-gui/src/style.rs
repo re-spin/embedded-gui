@@ -584,7 +584,7 @@ impl WidgetStyle {
         self
     }
 
-    pub const fn resolve(self, state: VisualState) -> Style {
+    pub const fn resolve(&self, state: VisualState) -> Style {
         match state {
             VisualState::Normal => self.normal,
             VisualState::Focused => self.focused,
