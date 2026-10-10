@@ -193,8 +193,18 @@ static IDX: [u8; IW * IW] = {
     }
     a
 };
-static DAY: [u16; 4] = [0, 0x7fff, 0x03e0, 0x7c00];
-static NIGHT: [u16; 4] = [0, 0x2108, 0x0010, 0x4000];
+/// Padded to 256 entries: the blit then uses the palette as its table.
+const fn pal(head: [u16; 4]) -> [u16; 256] {
+    let mut a = [0u16; 256];
+    let mut i = 0;
+    while i < 4 {
+        a[i] = head[i];
+        i += 1;
+    }
+    a
+}
+static DAY: [u16; 256] = pal([0, 0x7fff, 0x03e0, 0x7c00]);
+static NIGHT: [u16; 256] = pal([0, 0x2108, 0x0010, 0x4000]);
 static A8: [u8; IW * IW] = {
     let mut a = [0u8; IW * IW];
     let mut i = 0;

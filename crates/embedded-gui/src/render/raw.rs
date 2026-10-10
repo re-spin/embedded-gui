@@ -73,7 +73,10 @@ pub enum RawImage<'a> {
         px: &'a [u16],
     },
     /// One byte per pixel into `palette` (native pixels, so a theme can swap
-    /// it); `transparent` is skipped. `stride` as for `Argb1555`.
+    /// it); `transparent` is skipped. `stride` as for `Argb1555`. A palette
+    /// of 256 or more entries is used as is, with no per-blit table copy, so
+    /// its entries should have bit 15 clear; a shorter one is copied into a
+    /// table with bit 15 cleared.
     Indexed8 {
         w: u32,
         h: u32,
@@ -780,12 +783,20 @@ impl RawTarget for Rgb555Surface<'_> {
                 transparent,
                 ..
             } => {
-                // A 256-entry table: no bounds check per pixel, and the
-                // transparent index maps to "keep the destination".
-                let mut lut = [0u16; 256];
-                for (l, p) in lut.iter_mut().zip(palette) {
-                    *l = *p & 0x7fff;
-                }
+                // A 256-entry table: no bounds check per pixel. A full
+                // palette is the table itself, with no per-blit copy.
+                let own;
+                let lut: &[u16; 256] = match palette.first_chunk() {
+                    Some(full) => full,
+                    None => {
+                        let mut t = [0u16; 256];
+                        for (l, p) in t.iter_mut().zip(palette) {
+                            *l = *p & 0x7fff;
+                        }
+                        own = t;
+                        &own
+                    }
+                };
                 for (py, sy) in rows {
                     let at = sy * img.stride() + sx;
                     let Some(src) = px.get(at..at + n) else {
@@ -1029,16 +1040,32 @@ mod tests {
     fn indexed_rows_match_fallback_at_every_alignment() {
         // 37 px rows with transparent runs, drawn at shifted clips so the word
         // loop starts at each source alignment.
-        let idx: [u8; 37 * 3] =
-            core::array::from_fn(|i| if (i / 5) % 3 == 0 { 0 } else { (i % 4) as u8 });
-        let palette = [0x7fff, 0x7c00, 0x03e0, 0x001f];
-        for transparent in [Some(0), None] {
+        // Indices stay inside the palette (the fallback skips the others).
+        let row = |n: usize| -> [u8; 37 * 3] {
+            core::array::from_fn(|i| {
+                if (i / 5) % 3 == 0 {
+                    0
+                } else {
+                    (i * 7 % n) as u8
+                }
+            })
+        };
+        let (idx, wide) = (row(4), row(256));
+        // Short (copied into a table) and full (used as is).
+        let short = [0x7fff, 0x7c00, 0x03e0, 0x001f];
+        let full: [u16; 256] = core::array::from_fn(|i| (i as u16).wrapping_mul(0x0421) & 0x7fff);
+        for (transparent, palette, idx) in [
+            (Some(0), &short[..], &idx),
+            (None, &short[..], &idx),
+            (Some(0), &full[..], &wide),
+            (None, &full[..], &wide),
+        ] {
             let img = RawImage::Indexed8 {
                 w: 37,
                 h: 3,
                 stride: 37,
-                px: &idx,
-                palette: &palette,
+                px: idx,
+                palette,
                 transparent,
             };
             for x0 in 0..4 {
