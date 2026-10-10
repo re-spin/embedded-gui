@@ -5,7 +5,7 @@ use embedded_graphics_core::{
     pixelcolor::{IntoStorage, Rgb565, RgbColor},
 };
 
-use super::raw::Mask;
+use super::raw::{Mask, MaskFormat, RawImage};
 use crate::geometry::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +57,9 @@ pub trait Compositor<D: DrawTarget<Color = Rgb565>> {
         clip: Rect,
         ink: u32,
     ) -> Result<(), D::Error> {
+        if mask.format != MaskFormat::A1 {
+            return Self::blit(target, x, y, &RawImage::Mask(*mask), clip, ink);
+        }
         let mut res = Ok(());
         super::raw::mask1_spans(x, y, mask, clip, |r| {
             if res.is_ok() {
@@ -64,6 +67,29 @@ pub trait Compositor<D: DrawTarget<Color = Rgb565>> {
             }
         });
         res
+    }
+
+    /// `row` repeated on every line of `rect` (already limited to the pass;
+    /// `row.len() == rect.w`), e.g. a horizontal gradient.
+    fn repeat_row(target: &mut D, rect: Rect, row: &[Rgb565]) -> Result<(), D::Error> {
+        for y in rect.y..rect.bottom() {
+            let line = Rect::new(rect.x, y, rect.w, 1);
+            target.fill_contiguous(&super::raw::rectangle(line), row.iter().copied())?;
+        }
+        Ok(())
+    }
+
+    /// Raw image at `(x, y)`, limited to `clip`; `ink` tints a mask.
+    #[inline]
+    fn blit(
+        target: &mut D,
+        x: i32,
+        y: i32,
+        img: &RawImage<'_>,
+        clip: Rect,
+        ink: u32,
+    ) -> Result<(), D::Error> {
+        super::raw::blit_fallback(target, x, y, img, clip, super::raw::rgb565_of(ink))
     }
 }
 

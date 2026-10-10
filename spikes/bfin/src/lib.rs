@@ -11,7 +11,7 @@ use core::{cell::Cell, mem::MaybeUninit};
 
 use embedded_graphics_core::pixelcolor::{Rgb555, Rgb565, IntoStorage};
 use embedded_gui::{
-    Border, CustomCanvas, CustomWidget, Direct, EdgeInsets, RawTarget, Rgb555Surface, FontId, GuiContext, GuiError,
+    Border, CustomCanvas, CustomWidget, Direct, EdgeInsets, Mask, MaskFormat, RawImage, RawTarget, Rgb555Surface, FontId, GuiContext, GuiError,
     LinearGradient, Rect, SevenSegmentDisplay, Style, VisualState, WidgetId, WidgetStyle, encode_7seg,
 };
 
@@ -119,6 +119,89 @@ impl CustomWidget for Wave {
             let amp = (seed >> 24) % (r.h / 2);
             let amp = if x % 22 < 3 { r.h / 2 - 1 } else { amp / 3 };
             c.fill_rect(Rect::new(r.x + x, mid - amp as i32, 1, 2 * amp + 1), self.color)?;
+        }
+        Ok(())
+    }
+}
+
+/// Raw images, all through the target's blit hook: ARGB1555, indexed8 under
+/// two palettes (theme recolour), tinted A4/A8 masks and an A1 mask.
+pub struct Icons;
+
+const IW: usize = 24;
+/// Squared distance from the icon centre, in half pixels.
+const fn d2(i: usize) -> usize {
+    let (x, y) = ((i % IW) * 2 + 1, (i / IW) * 2 + 1);
+    let (dx, dy) = (x.abs_diff(IW), y.abs_diff(IW));
+    dx * dx + dy * dy
+}
+static ARGB: [u16; IW * IW] = {
+    let mut a = [0u16; IW * IW];
+    let mut i = 0;
+    while i < a.len() {
+        if d2(i) < 22 * 22 {
+            a[i] = 0x8000 | ((i % IW) as u16 & 31) << 10 | ((i / IW) as u16 & 31) << 5 | 0x0f;
+        }
+        i += 1;
+    }
+    a
+};
+static IDX: [u8; IW * IW] = {
+    let mut a = [0u8; IW * IW];
+    let mut i = 0;
+    while i < a.len() {
+        a[i] = if d2(i) < 10 * 10 { 3 } else if d2(i) < 16 * 16 { 2 } else if d2(i) < 22 * 22 { 1 } else { 0 };
+        i += 1;
+    }
+    a
+};
+static DAY: [u16; 4] = [0, 0x7fff, 0x03e0, 0x7c00];
+static NIGHT: [u16; 4] = [0, 0x2108, 0x0010, 0x4000];
+static A8: [u8; IW * IW] = {
+    let mut a = [0u8; IW * IW];
+    let mut i = 0;
+    while i < a.len() {
+        let d = d2(i);
+        a[i] = if d >= 24 * 24 { 0 } else { (255 - d * 255 / (24 * 24)) as u8 };
+        i += 1;
+    }
+    a
+};
+static A4: [u8; IW * IW / 2] = {
+    let mut a = [0u8; IW * IW / 2];
+    let mut i = 0;
+    while i < a.len() {
+        a[i] = (A8[2 * i] >> 4) << 4 | A8[2 * i + 1] >> 4;
+        i += 1;
+    }
+    a
+};
+static A1: [u8; IW * IW / 8] = {
+    let mut a = [0u8; IW * IW / 8];
+    let mut i = 0;
+    while i < IW * IW {
+        if A8[i] > 96 && (i / IW + i % IW) % 3 != 0 {
+            a[i / 8] |= 0x80 >> (i % 8);
+        }
+        i += 1;
+    }
+    a
+};
+
+impl CustomWidget for Icons {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let (w, h) = (IW as u32, IW as u32);
+        let mask = |format, data, stride| RawImage::Mask(Mask { w, h, stride, format, data });
+        let imgs = [
+            (RawImage::Argb1555 { w, h, px: &ARGB }, BLACK),
+            (RawImage::Indexed8 { w, h, px: &IDX, palette: &DAY, transparent: Some(0) }, BLACK),
+            (RawImage::Indexed8 { w, h, px: &IDX, palette: &NIGHT, transparent: Some(0) }, BLACK),
+            (mask(MaskFormat::A4, &A4[..], IW / 2), rgb(0xffa000)),
+            (mask(MaskFormat::A8, &A8[..], IW), rgb(0x40c0ff)),
+            (mask(MaskFormat::A1, &A1[..], IW / 8), WHITE),
+        ];
+        for (i, (img, tint)) in imgs.iter().enumerate() {
+            c.draw_raw_image(r.x + 28 * i as i32, r.y, img, *tint)?;
         }
         Ok(())
     }
@@ -245,6 +328,12 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     dirty(g, px);
     mark(Mark::Dirty, px);
 
+    // Raw images appear over the waveform (one widget, six blits).
+    g.clear_dirty();
+    g.add_custom_widget(Rect::new(44, 60, 6 * 28, IW as u32), &Icons, st(None, WHITE, SMALL, pad(0, 0)))?;
+    dirty(g, px);
+    mark(Mark::Dirty, px);
+
     // Cost attribution. Raw fill of the whole screen, our code only:
     fb(px).fill_native(view, Rgb555::new(1, 2, 3).into_storage() as u32);
     mark(Mark::Ref, px);
@@ -257,6 +346,18 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     // One 300x24 row label, 21 glyphs of the 9x18 font:
     let g = slot.write(Gui::new(view));
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), ARTISTS[1], row_style(1, false))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    // The six raw images alone (no background): blit cost.
+    let g = slot.write(Gui::new(view));
+    g.add_custom_widget(Rect::new(44, 60, 6 * 28, IW as u32), &Icons, st(None, WHITE, SMALL, pad(0, 0)))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    // The waveform alone: 400 1-px column fill_rects through the canvas.
+    let g = slot.write(Gui::new(view));
+    g.add_custom_widget(Rect::new(40, 50, 400, 90), &WAVE, st(None, WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);

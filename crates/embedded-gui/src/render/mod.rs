@@ -21,7 +21,7 @@ pub use hardware_scroll::{
     ScrollDamage, St7789ScrollConfig,
 };
 pub use line_buffer::{LineBufferRenderer, ScanlineTarget};
-pub use raw::{Direct, Mask, MaskFormat, RawTarget, Rgb555Surface};
+pub use raw::{Direct, Mask, MaskFormat, RawImage, RawTarget, Rgb555Surface, blend555};
 pub use span::{FixedSpanRasterizer, ScanlineSpan};
 pub use stroke::{
     AntiAliasMode, PathVerb, RenderQuality, StrokeCap, StrokeDash, StrokeJoin, StrokeStyle,
@@ -570,11 +570,8 @@ where
             && self.current_transform().is_identity()
             && layer.blend == BlendMode::Normal
         {
-            let eg_rect = embedded_graphics_core::primitives::Rectangle::new(
-                embedded_graphics_core::geometry::Point::new(draw.x, draw.y),
-                embedded_graphics_core::geometry::Size::new(draw.w, draw.h),
-            );
-            return self.target.fill_solid(&eg_rect, color);
+            let ink = C::ink(self.target, color);
+            return C::fill(self.target, draw, ink);
         }
 
         let r = radius as i32;
@@ -676,11 +673,8 @@ where
                     let is_middle_row = r == 0 || (y >= rect.y + r && y < rect.bottom() - r);
                     if is_middle_row {
                         if fast_solid {
-                            let eg_rect = embedded_graphics_core::primitives::Rectangle::new(
-                                Point::new(draw.x, y),
-                                embedded_graphics_core::geometry::Size::new(draw.w, 1),
-                            );
-                            self.target.fill_solid(&eg_rect, color)?;
+                            let ink = C::ink(self.target, color);
+                            C::fill(self.target, Rect::new(draw.x, y, draw.w, 1), ink)?;
                         } else {
                             for x in draw.x..draw.right() {
                                 self.pixel(x, y, color, opacity)?;
@@ -745,13 +739,11 @@ where
                         row_buf[i] = column_color(x);
                     }
                     let row = &row_buf[..span as usize];
-                    for y in draw.y..draw.bottom() {
-                        let eg_rect = embedded_graphics_core::primitives::Rectangle::new(
-                            Point::new(x_lo, y),
-                            embedded_graphics_core::geometry::Size::new(span as u32, 1),
-                        );
-                        self.target.fill_contiguous(&eg_rect, row.iter().copied())?;
-                    }
+                    C::repeat_row(
+                        self.target,
+                        Rect::new(x_lo, draw.y, span as u32, draw.h),
+                        row,
+                    )?;
                 }
 
                 // Corner columns, plus everything else when blending is required or the
@@ -2152,6 +2144,25 @@ where
         )
     }
 
+    /// Raw image (ARGB1555, indexed8, or a mask tinted with `tint`) with its
+    /// top-left at `(x, y)`, through the compositor's blit (the target's for
+    /// [`Direct`]). Device space: the transform and layer opacity do not apply.
+    pub fn draw_raw_image(
+        &mut self,
+        x: i32,
+        y: i32,
+        img: &RawImage<'_>,
+        tint: Rgb565,
+    ) -> Result<(), D::Error> {
+        let (w, h) = img.size();
+        let clip = self.visible_rect(Rect::new(x, y, w, h));
+        if clip.is_empty() {
+            return Ok(());
+        }
+        let ink = C::ink(self.target, tint);
+        C::blit(self.target, x, y, img, clip, ink)
+    }
+
     /// The damage rect this pass is limited to, if any.
     pub(crate) fn dirty_rect(&self) -> Option<Rect> {
         self.dirty
@@ -2720,6 +2731,18 @@ where
     fn fill_rect(&mut self, rect: Rect, color: Rgb565) -> Result<(), crate::GuiError> {
         self.ctx
             .fill_rect(rect, color)
+            .map_err(|_| crate::GuiError::Drawing)
+    }
+
+    fn draw_raw_image(
+        &mut self,
+        x: i32,
+        y: i32,
+        img: &RawImage<'_>,
+        tint: Rgb565,
+    ) -> Result<(), crate::GuiError> {
+        self.ctx
+            .draw_raw_image(x, y, img, tint)
             .map_err(|_| crate::GuiError::Drawing)
     }
 

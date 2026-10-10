@@ -183,8 +183,8 @@ pub use render::{
 };
 pub use render::{
     Direct, HardwareVerticalScrollTarget, HardwareVerticalScroller, LineBufferRenderer, Mask,
-    MaskFormat, MipiDcsScrollConfig, RawTarget, Rgb555Surface, ScanlineTarget, ScrollConfigError,
-    ScrollDamage, St7789ScrollConfig,
+    MaskFormat, MipiDcsScrollConfig, RawImage, RawTarget, Rgb555Surface, ScanlineTarget,
+    ScrollConfigError, ScrollDamage, St7789ScrollConfig,
 };
 pub use round::{UnobstructedArea, circle_chord_width, round_screen_line_bounds};
 pub use screen::{

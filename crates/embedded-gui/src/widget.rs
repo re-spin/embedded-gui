@@ -250,6 +250,17 @@ pub trait CustomCanvas {
         color: embedded_graphics_core::pixelcolor::Rgb565,
         font: crate::font::FontId,
     ) -> Result<(), crate::GuiError>;
+    /// Raw image (see [`RawImage`](crate::render::RawImage)) at `(x, y)`;
+    /// `tint` colours a mask. Canvases without raw support draw nothing.
+    fn draw_raw_image(
+        &mut self,
+        _x: i32,
+        _y: i32,
+        _img: &crate::render::RawImage<'_>,
+        _tint: embedded_graphics_core::pixelcolor::Rgb565,
+    ) -> Result<(), crate::GuiError> {
+        Ok(())
+    }
 }
 
 /// A safe `#![no_std]` extension point allowing user code to define
