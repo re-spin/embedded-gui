@@ -25,6 +25,59 @@ Reproduce:
 
 Simulator cycles are not hardware time: there is no cache or SDRAM model.
 
+## Fork tuning (branch fork/respin, 2026-10-09)
+
+`python3 spikes/bfin/bfin/run.py [--opt 2|s] [--lines]` now builds the host
+frames from the same tree, links the firmware's `_cdj_gui_fill16`
+(cdj-2000nxs-mods `rust/gui/presentation/asm/copy.S`), and exits non-zero
+unless all three gates pass: frames identical to host, 0 reachable panic
+sites, 0 soft-float calls while rendering. Each commit was measured at O2
+with its own bench. Frames 0-4 are byte-identical to the spike's.
+
+| commit | browse full | player full | 1 row text | selection | digits | cycles/glyph | 6 images | .text KB | panic sites | stack B |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bench at O2 (= spike code) | 5.11M | 5.09M | 416k | 772k | 73k | 16,322 | - | 76.4 | 31 | 61k ¹ |
+| glyph masks to the target | 3.01M | 4.13M | 155k | 281k | 69k | 2,624 | - | 77.8 | 34 | |
+| `_cdj_gui_fill16` row fills | 1.79M | 3.93M | 86k | 141k | 60k | 2,624 | - | 78.1 | 34 | |
+| colour once per call, raw images | 1.00M | 2.61M | 87k | 143k | 58k | 2,681 | 102k | 80.6 | 37 | |
+| spike waveform without division ² | 1.00M | 1.84M | 87k | 143k | 58k | 2,681 | 102k | 80.6 | 36 | |
+| narrow fills, one bounds check | 1.00M | 1.40M | 87k | 143k | 54k | 2,681 | 102k | 80.6 | 36 | |
+| borrow WidgetNode / styles | 0.99M | 1.39M | 85k | 141k | 52k | 2,681 | 101k | 77.2 | 36 | |
+| `GuiContext::init_in_place` | 0.99M | 1.39M | 85k | 141k | 52k | 2,681 | 101k | 76.8 | 36 | 4,831 |
+| panic-free render path | **0.99M** | **1.40M** | 85k | 142k | 52k | 2,696 | 101k | 74.0 | **0** | 4,623 |
+| same, opt-level "s" | 1.34M | 2.24M | 139k | 217k | 105k | 3,802 | 153k | 74.6 | 5 | 4,291 |
+
+¹ Measured high-water, saturated by two context temporaries.
+² The spike's own widget, not the crate: the pixels are unchanged.
+
+Hand-tuned reference: 2.0-3.7M per full frame. Both screens are now below
+it, at 2.5 ms (browse) and 3.6 ms (player) at 393 MHz.
+
+What changed in the crate:
+
+- `Compositor` hooks `ink`/`fill`/`mask`/`repeat_row`/`blit`. Their defaults
+  are built on `fill_solid`, so existing targets are unchanged.
+- `RawTarget` + `Direct`, and `GuiContext::render_with` / `render_dirty_with`.
+- `Rgb555Surface`: X1RGB555 with a pluggable row fill. The 565 -> 555
+  conversion happens once per call.
+- `Font::glyph_mask` (A1, A4, A8).
+- `RawImage` (ARGB1555, indexed8 + palette, tinted A4/A8/A1 masks), drawn
+  only through the blit hook.
+- `WidgetNode::render_at_styled`, which borrows the node and its styles.
+- `GuiContext::init_in_place`.
+- Panic-free indexing on the render path.
+
+Left:
+
+- Soft-float helpers are still *linked*: `lerp_style`, libm trig, and the
+  slider/gauge/plotter arms. That needs the fixed-point fork (items 8-12
+  below).
+- Pluggable fonts: stock indexed fonts and CJK through `Font::glyph_mask`.
+- A4/A8 blits are about 35 cycles/px on all-partial coverage.
+- About 580 cycles of fixed cost per `fill_rect` call.
+- Context side tables: 31.8 KB at NODES = 32. The largest items are the
+  widgets, textarea undo/redo and class styles.
+
 ## Setup
 
 - `embedded-gui` with `default-features = false, features = ["libm"]`. A math
