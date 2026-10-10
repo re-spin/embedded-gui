@@ -133,6 +133,18 @@ pub trait RawTarget: DrawTarget<Color = Rgb565> {
         mask1_spans(x, y, mask, clip, |r| self.fill_native(r, px));
     }
 
+    /// Masks (a run of glyphs) at their top-left corners, each limited to
+    /// `clip`, all in `px`.
+    fn masks(&mut self, masks: &[(i32, i32, Mask<'_>)], clip: Rect, px: u32) {
+        for (x, y, m) in masks {
+            if m.format == MaskFormat::A1 {
+                self.mask1(*x, *y, m, clip, px);
+            } else {
+                self.blit(*x, *y, &RawImage::Mask(*m), clip, px);
+            }
+        }
+    }
+
     /// `row` repeated on every line of `rect` (`row.len() == rect.w`).
     fn repeat_row(&mut self, rect: Rect, row: &[Rgb565]) {
         for (x, c) in (rect.x..rect.right()).zip(row) {
@@ -202,6 +214,17 @@ impl<D: RawTarget> Compositor<D> for Direct {
     }
 
     #[inline]
+    fn masks(
+        target: &mut D,
+        masks: &[(i32, i32, Mask<'_>)],
+        clip: Rect,
+        ink: u32,
+    ) -> Result<(), D::Error> {
+        target.masks(masks, clip, ink);
+        Ok(())
+    }
+
+    #[inline]
     fn repeat_row(target: &mut D, rect: Rect, row: &[Rgb565]) -> Result<(), D::Error> {
         target.repeat_row(rect, row);
         Ok(())
@@ -218,6 +241,32 @@ impl<D: RawTarget> Compositor<D> for Direct {
     ) -> Result<(), D::Error> {
         target.blit(x, y, img, clip, ink);
         Ok(())
+    }
+}
+
+/// Reference [`Rgb555Surface::mask1_batch`]: each A1 mask clipped to `clip`
+/// (inside the surface) and drawn with [`mask1_rows`]; wider than 32 px
+/// draws nothing, as `mask1_rows`.
+pub fn mask1_batch(
+    px: &mut [u16],
+    stride: usize,
+    clip: Rect,
+    masks: &[(i32, i32, Mask<'_>)],
+    ink: u16,
+) {
+    for (x, y, m) in masks {
+        let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
+        if !c.is_empty() {
+            let at = c.y as usize * stride + c.x as usize;
+            mask1_rows(
+                px,
+                at,
+                stride,
+                m,
+                Rect::new(c.x - x, c.y - y, c.w, c.h),
+                ink,
+            );
+        }
     }
 }
 
@@ -358,6 +407,11 @@ pub struct Rgb555Surface<'a> {
     /// top-left lands on `px[at]`, rows `stride` apart (default:
     /// [`mask1_rows`]).
     pub mask1_rows: fn(&mut [u16], usize, usize, &Mask<'_>, Rect, u16),
+    /// A run of A1 masks in one call: `(px, stride, clip, masks, ink)`, with
+    /// `clip` already inside the surface and each mask at its top-left
+    /// corner, drawn as [`RawTarget::mask1`] would. `None` (the default):
+    /// one [`Self::mask1_rows`] call per mask.
+    pub mask1_batch: Option<fn(&mut [u16], usize, Rect, &[(i32, i32, Mask<'_>)], u16)>,
 }
 
 impl<'a> Rgb555Surface<'a> {
@@ -372,6 +426,7 @@ impl<'a> Rgb555Surface<'a> {
             copy_px: <[u16]>::copy_from_slice,
             smear_line,
             mask1_rows,
+            mask1_batch: None,
         }
     }
 
@@ -793,6 +848,27 @@ impl RawTarget for Rgb555Surface<'_> {
         mask1_rows(self.px, at, self.w as usize, mask, sub, px as u16);
     }
 
+    fn masks(&mut self, masks: &[(i32, i32, Mask<'_>)], clip: Rect, px: u32) {
+        let clip = self.bounded(clip);
+        if clip.is_empty() {
+            return;
+        }
+        match self.mask1_batch {
+            Some(batch) if masks.iter().all(|(_, _, m)| m.format == MaskFormat::A1) => {
+                batch(self.px, self.w as usize, clip, masks, px as u16)
+            }
+            _ => {
+                for (x, y, m) in masks {
+                    if m.format == MaskFormat::A1 {
+                        self.mask1(*x, *y, m, clip, px);
+                    } else {
+                        self.blit(*x, *y, &RawImage::Mask(*m), clip, px);
+                    }
+                }
+            }
+        }
+    }
+
     fn blit(&mut self, x: i32, y: i32, img: &RawImage<'_>, clip: Rect, tint: u32) {
         let (w, h) = img.size();
         let c = self.bounded(clip.intersection(Rect::new(x, y, w, h)));
@@ -947,6 +1023,7 @@ mod tests {
             let mut out = [vec![0x1234u16; 50], vec![0x1234u16; 50]];
             for (i, px) in out.iter_mut().enumerate() {
                 let mut s = Rgb555Surface::new(px, 10, 5);
+                s.mask1_batch = Some(mask1_batch);
                 let mut ctx = RenderCtx::<_, Direct>::with_compositor(&mut s, clip, None);
                 if i == 0 {
                     ctx.draw_masks(&run, tint).unwrap();

@@ -2194,13 +2194,7 @@ where
             return Ok(());
         }
         let ink = C::ink(self.target, tint);
-        for (x, y, m) in masks {
-            let clip = vis.intersection(Rect::new(*x, *y, m.w, m.h));
-            if !clip.is_empty() {
-                C::mask(self.target, *x, *y, m, clip, ink)?;
-            }
-        }
-        Ok(())
+        C::masks(self.target, masks, vis, ink)
     }
 
     /// The damage rect this pass is limited to, if any.

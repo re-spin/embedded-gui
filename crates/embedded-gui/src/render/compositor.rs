@@ -69,6 +69,23 @@ pub trait Compositor<D: DrawTarget<Color = Rgb565>> {
         res
     }
 
+    /// Masks (a run of glyphs) at their top-left corners, each limited to
+    /// `clip` (the pass), all in `ink`.
+    fn masks(
+        target: &mut D,
+        masks: &[(i32, i32, Mask<'_>)],
+        clip: Rect,
+        ink: u32,
+    ) -> Result<(), D::Error> {
+        for (x, y, m) in masks {
+            let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
+            if !c.is_empty() {
+                Self::mask(target, *x, *y, m, c, ink)?;
+            }
+        }
+        Ok(())
+    }
+
     /// `row` repeated on every line of `rect` (already limited to the pass;
     /// `row.len() == rect.w`), e.g. a horizontal gradient.
     fn repeat_row(target: &mut D, rect: Rect, row: &[Rgb565]) -> Result<(), D::Error> {
