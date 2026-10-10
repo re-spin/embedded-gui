@@ -2088,6 +2088,11 @@ where
         )
     }
 
+    /// The damage rect this pass is limited to, if any.
+    pub(crate) fn dirty_rect(&self) -> Option<Rect> {
+        self.dirty
+    }
+
     fn visible_rect(&self, rect: Rect) -> Rect {
         let mut draw = rect.intersection(self.clip);
         if let Some(dirty) = self.dirty {

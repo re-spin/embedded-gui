@@ -185,14 +185,17 @@ impl Transform2D {
         }
     }
 
+    /// Exact identity, compared as bit patterns so the per-span hot path does no
+    /// float math on FPU-less targets (`-0.0` just takes the general path).
     #[inline(always)]
     pub fn is_identity(self) -> bool {
-        self.m11 == 1.0
-            && self.m12 == 0.0
-            && self.m21 == 0.0
-            && self.m22 == 1.0
-            && self.tx == 0.0
-            && self.ty == 0.0
+        let (one, zero) = (1.0f32.to_bits(), 0.0f32.to_bits());
+        self.m11.to_bits() == one
+            && self.m12.to_bits() == zero
+            && self.m21.to_bits() == zero
+            && self.m22.to_bits() == one
+            && self.tx.to_bits() == zero
+            && self.ty.to_bits() == zero
     }
 
     #[inline(always)]

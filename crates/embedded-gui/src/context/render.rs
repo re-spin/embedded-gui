@@ -429,7 +429,9 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                 base_clip.w,
                 base_clip.h,
             );
-            if rect.intersection(clip).is_empty() {
+            let visible = rect.intersection(clip);
+            // Skip nodes outside this pass's damage before any style/text setup.
+            if visible.is_empty() || ctx.dirty_rect().is_some_and(|d| visible.intersection(d).is_empty()) {
                 continue;
             }
             let old_clip = ctx.clip();
