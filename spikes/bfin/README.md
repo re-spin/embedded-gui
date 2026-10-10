@@ -50,6 +50,26 @@ with its own bench. Frames 0-4 are byte-identical to the spike's.
 ¹ Measured high-water, saturated by two context temporaries.
 ² The spike's own widget, not the crate: the pixels are unchanged.
 
+Second batch for respin-ui (2026-10-10), same gates, O2:
+
+| commit | measure | before | after |
+|---|---|---|---|
+| ScrollView children follow `set_scroll_offset` | correctness (children were not offset) | | |
+| O(1) node lookup, one-walk placement | 32-widget tree, damage on a 1x1 widget | 90.1k | 29.8k |
+| | clock digits / one row text | 52.3k / 86.7k | 35.3k / 71.2k |
+| `copy_rect` + `GuiContext::scroll_rect` | 480x90 waveform, 3 px scroll | 623k (full redraw) | 104k ³ |
+| `smear_x`/`smear_y` (Rust) | 480x90, 8 taps | | 1.45M / 1.57M |
+| `smear_line` hook + `bfin/smear.S` | 480x90, 8 taps | 1.45M / 1.57M | 504k / 813k |
+| `TextOverflow::WholeGlyphs`, `WHOLE_GLYPHS` flag | feature | | |
+| `RawImage` row stride | feature | | |
+
+³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
+
+NODES 32 -> 64 costs about 29 KB of context (31.8 -> 60.9 KB, about 910 B a
+slot across the widget list and its per-node side tables). Render time
+depends on the widgets actually present: about 930 cycles per widget per
+damage pass for the tree walk.
+
 Hand-tuned reference: 2.0-3.7M per full frame. Both screens are now below
 it, at 2.5 ms (browse) and 3.6 ms (player) at 393 MHz.
 
