@@ -386,14 +386,17 @@ fn a4_row(row: &mut [u16], src: &[u8], sx: usize, tint: u16) {
         15 => *d = tint,
         a => *d = blend555(*d, tint, a as u32 * 17),
     };
-    let mut row = row;
-    // An odd start column takes the low nibble of its byte alone.
-    if sx & 1 == 1 {
-        if let (Some((d, rest)), Some(b)) = (row.split_first_mut(), src.get(sx >> 1)) {
-            px(d, b & 15);
-            row = rest;
+    // An odd start column takes the low nibble of its byte alone. (Split by
+    // value so the remainder is a plain reborrow: stable borrowck accepts it.)
+    let row = match (sx & 1 == 1, row) {
+        (true, [d, rest @ ..]) => {
+            if let Some(b) = src.get(sx >> 1) {
+                px(d, b & 15);
+            }
+            rest
         }
-    }
+        (_, row) => row,
+    };
     let bytes = src.get(sx.div_ceil(2)..).unwrap_or_default();
     let used = row.len() / 2;
     let mut pairs = row.chunks_exact_mut(2);
