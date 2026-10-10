@@ -1569,7 +1569,8 @@ where
     if rle_data.len() < 3 {
         return Ok(());
     }
-    let total_frames = u16::from_le_bytes([rle_data[0], rle_data[1]]) as usize;
+    let byte = |i: usize| rle_data.get(i).copied().unwrap_or(0);
+    let total_frames = u16::from_le_bytes([byte(0), byte(1)]) as usize;
     if current_frame >= total_frames {
         return Ok(());
     }
@@ -1578,26 +1579,28 @@ where
         return Ok(());
     }
     let frame_offset = u32::from_le_bytes([
-        rle_data[offset_start],
-        rle_data[offset_start + 1],
-        rle_data[offset_start + 2],
-        rle_data[offset_start + 3],
+        byte(offset_start),
+        byte(offset_start + 1),
+        byte(offset_start + 2),
+        byte(offset_start + 3),
     ]) as usize;
 
     if frame_offset >= rle_data.len() {
         return Ok(());
     }
-    let pal_size = rle_data[frame_offset] as usize;
+    let pal_size = byte(frame_offset) as usize;
     let mut pal_colors = [Rgb565::BLACK; 256];
     let pal_colors_start = frame_offset + 1;
     for i in 0..pal_size {
         let idx = pal_colors_start + i * 2;
         if idx + 2 <= rle_data.len() {
-            let color_u16 = u16::from_le_bytes([rle_data[idx], rle_data[idx + 1]]);
+            let color_u16 = u16::from_le_bytes([byte(idx), byte(idx + 1)]);
             let r = ((color_u16 >> 11) & 0x1F) as u8;
             let g = ((color_u16 >> 5) & 0x3F) as u8;
             let b = (color_u16 & 0x1F) as u8;
-            pal_colors[i] = Rgb565::new(r, g, b);
+            if let Some(slot) = pal_colors.get_mut(i) {
+                *slot = Rgb565::new(r, g, b);
+            }
         }
     }
 
@@ -1607,8 +1610,8 @@ where
     let mut idx = runs_start;
 
     while idx + 2 <= rle_data.len() {
-        let run_len = rle_data[idx] as i32;
-        let pal_idx = rle_data[idx + 1] as usize;
+        let run_len = byte(idx) as i32;
+        let pal_idx = byte(idx + 1) as usize;
         idx += 2;
 
         if run_len == 0 {
@@ -1616,7 +1619,7 @@ where
         }
 
         let color = if pal_idx < pal_size {
-            pal_colors[pal_idx]
+            pal_colors.get(pal_idx).copied().unwrap_or(Rgb565::BLACK)
         } else {
             Rgb565::BLACK
         };
@@ -1669,7 +1672,8 @@ where
     block.render(input_rect, ctx)?;
     let inner = block.inner(input_rect);
 
-    let current_text = core::str::from_utf8(&text_buf[..text_len as usize]).unwrap_or("");
+    let current_text =
+        core::str::from_utf8(text_buf.get(..text_len as usize).unwrap_or_default()).unwrap_or("");
     if text_len == 0 {
         ctx.draw_text_in(
             inner,
@@ -1708,8 +1712,8 @@ where
         ctx.fill_rect(popup, style.background.unwrap_or(Rgb565::new(4, 6, 8)))?;
         ctx.stroke_rect(popup, Border::one(style.border.color))?;
 
-        for i in 0..filter_count as usize {
-            if let Some(s) = filtered[i] {
+        for (i, slot) in filtered.iter().enumerate().take(filter_count as usize) {
+            if let Some(s) = *slot {
                 let row_y = popup.y + i as i32 * (row_h as i32 + 2);
                 let row_rect = Rect::new(popup.x + 1, row_y + 1, popup.w.saturating_sub(2), row_h);
 
@@ -3261,8 +3265,12 @@ where
         {
             continue;
         }
-        let idx = (selected as i32 + rel).rem_euclid(count) as usize;
-        let text = items[idx];
+        // rem_euclid with a divisor provably >= 1 (no zero or overflow panic path).
+        let m = (selected as i32 + rel) % count.max(1);
+        let idx = if m < 0 { m + count } else { m } as usize;
+        let Some(text) = items.get(idx).copied() else {
+            continue;
+        };
         let color = carousel_slot_color(style.text, rel.unsigned_abs());
         let (x, _) = text_left(text);
         ctx.draw_text_with_font(x, row_center - line_height / 2, text, color, style.font)?;
@@ -3295,7 +3303,7 @@ where
         );
         let bar_w = spec.indicator_bar_w.max(1);
         let bar_h = spec.indicator_bar_h.max(1);
-        let (left, width) = text_left(items[selected]);
+        let (left, width) = text_left(items.get(selected).copied().unwrap_or_default());
         let y = center_y + spec.shift as i32 - bar_h as i32 / 2;
         let left_x = left - spec.indicator_gap as i32 - bar_w as i32;
         let right_x = left + width + spec.indicator_gap as i32;

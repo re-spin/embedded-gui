@@ -150,13 +150,8 @@ impl BitmapFont {
         }
         let idx = (code - self.first_char as u32) as usize;
         let bytes_per_glyph = self.height as usize * self.bytes_per_row as usize;
-        let start = idx * bytes_per_glyph;
-        let end = start + bytes_per_glyph;
-        if end <= self.glyphs.len() {
-            Some(&self.glyphs[start..end])
-        } else {
-            None
-        }
+        let start = idx.checked_mul(bytes_per_glyph)?;
+        self.glyphs.get(start..start.checked_add(bytes_per_glyph)?)
     }
 
     /// Renders a glyph by emitting [`GlyphOp`] commands to a single closure callback.
@@ -167,7 +162,7 @@ impl BitmapFont {
         if let Some(data) = self.glyph_bytes(ch) {
             let bpr = self.bytes_per_row as usize;
             for row in 0..(self.height as usize) {
-                let row_data = &data[row * bpr..(row + 1) * bpr];
+                let row_data = data.get(row * bpr..(row + 1) * bpr).unwrap_or_default();
                 let mut span_start: Option<usize> = None;
                 let mut span_len = 0u32;
 

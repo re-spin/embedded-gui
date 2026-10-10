@@ -735,8 +735,8 @@ where
                 let row_fits = span > 0 && (span as usize) <= MAX_ROW;
                 if fast_solid && row_fits && draw.h > 0 {
                     let mut row_buf = [Rgb565::BLACK; MAX_ROW];
-                    for (i, x) in (x_lo..x_hi).enumerate() {
-                        row_buf[i] = column_color(x);
+                    for (slot, x) in row_buf.iter_mut().zip(x_lo..x_hi) {
+                        *slot = column_color(x);
                     }
                     let row = &row_buf[..span as usize];
                     C::repeat_row(
@@ -1040,7 +1040,7 @@ where
 
         let advance = font.advance();
         let line_h = font.line_height();
-        let max_chars = (rect.w / advance).max(1) as usize;
+        let max_chars = rect.w.checked_div(advance).unwrap_or(0).max(1) as usize;
         let char_count = text.chars().count();
         let line_step = line_h + style.line_spacing as u32;
         // `count_lines` re-walks the same wrap boundaries that the draw loop
@@ -2177,11 +2177,12 @@ where
     }
 
     fn current_transform(&self) -> Transform2D {
-        self.transform_stack[self.transform_len - 1]
+        // len is 1..=8; the clamp keeps the index provably in bounds.
+        self.transform_stack[self.transform_len.saturating_sub(1).min(7)]
     }
 
     fn current_layer(&self) -> LayerState {
-        self.layer_stack[self.layer_len - 1]
+        self.layer_stack[self.layer_len.saturating_sub(1).min(7)]
     }
 
     fn stroke_opacity(&self, style: StrokeStyle) -> u8 {

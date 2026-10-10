@@ -425,9 +425,15 @@ impl<const N: usize> DirtyTracker<N> {
         if self.regions.iter().any(|r| r.intersects(rect)) {
             let mut merged = rect;
             let mut i = 0;
-            while i < self.regions.len() {
-                if self.regions[i].intersects(merged) {
-                    merged = merged.union(self.regions.swap_remove(i));
+            while let Some(r) = self.regions.get(i).copied() {
+                if r.intersects(merged) {
+                    merged = merged.union(r);
+                    // swap_remove(i), panic-free: the last region moves into slot i.
+                    if let Some(last) = self.regions.pop() {
+                        if let Some(slot) = self.regions.get_mut(i) {
+                            *slot = last;
+                        }
+                    }
                 } else {
                     i += 1;
                 }

@@ -402,8 +402,10 @@ impl RawTarget for Rgb555Surface<'_> {
         }
         for y in r.y + 1..r.bottom() {
             let at = y as usize * stride + x0;
-            if at + n <= self.px.len() {
-                self.px.copy_within(first..first + n, at);
+            if let Some((head, tail)) = self.px.split_at_mut_checked(at) {
+                if let (Some(src), Some(dst)) = (head.get(first..first + n), tail.get_mut(..n)) {
+                    dst.copy_from_slice(src);
+                }
             }
         }
     }

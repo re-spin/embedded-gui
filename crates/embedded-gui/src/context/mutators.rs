@@ -1921,14 +1921,17 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     pub fn mark_subtree_dirty(&mut self, id: WidgetId) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         self.dirty.add(rect)?;
-        let child_ids: heapless::Vec<WidgetId, NODES> = self
-            .widgets
-            .iter()
-            .filter(|node| node.parent == Some(id))
-            .map(|node| node.id)
-            .collect();
-        for child in child_ids {
-            self.mark_subtree_dirty(child)?;
+        // By index: marking dirty never touches the widget list, so indices are
+        // stable, and there is no child buffer (or its panic paths).
+        for i in 0..self.widgets.len() {
+            let child = self
+                .widgets
+                .get(i)
+                .filter(|node| node.parent == Some(id))
+                .map(|node| node.id);
+            if let Some(child) = child {
+                self.mark_subtree_dirty(child)?;
+            }
         }
         Ok(())
     }

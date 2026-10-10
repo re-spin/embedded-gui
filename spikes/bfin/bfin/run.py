@@ -87,10 +87,14 @@ def softfloat_stubs(helpers):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--opt", default="2", help="gui-firmware opt-level (2 or s)")
-    opt = ap.parse_args().opt
+    ap.add_argument("--lines", action="store_true", help="build with line tables, print each panic site's source line")
+    args = ap.parse_args()
+    opt = args.opt
     # Host frames from the same tree, so the identity check is against this build.
     run("cargo", "+nightly", "run", "-q", "--release", "--bin", "host", SPIKE / "target/frames", cwd=SPIKE)
     env = dict(os.environ, CARGO_PROFILE_GUI_FIRMWARE_OPT_LEVEL=opt)
+    if args.lines:
+        env["CARGO_PROFILE_GUI_FIRMWARE_DEBUG"] = "line-tables-only"
     run("cargo", "rustc", "-q", "--profile", "gui-firmware", "--lib", "--crate-type", "staticlib",
         "--target", MODS / ".sdk/targets/bfin-cdj-gui.json", "-Zjson-target-spec",
         "-Zbuild-std=core,compiler_builtins", "-Zbuild-std-features=compiler-builtins-mem", cwd=SPIKE, env=env)
@@ -127,7 +131,7 @@ def main():
 
     # Panic call sites: every CALL/JUMP from a non-panic function into a panic root.
     listing = run(OBJDUMP, "-d", "--no-show-raw-insn", elf, capture_output=True, text=True).stdout
-    sites, fn = Counter(), None
+    sites, fn, site_addrs = Counter(), None, []
     soft_callers = Counter()
     for line in listing.splitlines():
         if (m := re.match(r"[0-9a-f]+ <(_[^>]+)>:$", line)):
@@ -136,6 +140,7 @@ def main():
         if fn and (m := re.search(r"(?:CALL|JUMP(?:\.[LS])?)\s+0x[0-9a-f]+ <(_[^>+]+)>", line)):
             if PANIC.search(m.group(1)) and not PANIC.search(fn):
                 sites[fn] += 1
+                site_addrs.append(line.split(":")[0].strip())
             if m.group(1) in softfloat:
                 soft_callers[fn] += 1
     by_crate = Counter()
@@ -171,6 +176,11 @@ def main():
     print(f"panic call sites: {sum(sites.values())} in {len(sites)} functions; by crate: {by_crate.most_common()}")
     for f, c in sites.most_common():
         print(f"    {c:3}  {crate_of(f[1:]):20} {short(f)}")
+    if args.lines and site_addrs:
+        where = run(TC / "binutils-bfin/bin/bfin-elf-addr2line", "-i", "-e", elf, *site_addrs,
+                    capture_output=True, text=True).stdout
+        print("panic site lines (innermost first):")
+        print("\n".join("    " + re.sub(r".*/(crates|library|spikes|src)/", r"\1/", l) for l in where.splitlines()))
     print("panic roots linked:", sorted(n for n in names if PANIC.search(n)))
     print(f"frames > 256 B ({len(big)}):", [(v, short(k)) for v, k in big[:15]])
     for (kind, cyc, sf), label in zip(marks, LABELS):
@@ -203,6 +213,11 @@ def main():
         "same_as_base": all(vs_base) if vs_base else None,
     }
     print("SUMMARY", json.dumps(summary))
+    gates = {"frames identical to host": summary["identical"], "0 reachable panic sites": not summary["panic_sites"],
+             "0 soft-float calls while rendering": not summary["render_softfloat_calls"]}
+    print("GATES", {k: "PASS" if v else "FAIL" for k, v in gates.items()})
+    if not all(gates.values()):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
