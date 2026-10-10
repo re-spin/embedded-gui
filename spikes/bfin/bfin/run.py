@@ -39,6 +39,8 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build wave", "ref: waveform alone, 400 column fill_rects (render)",
           "ref: build 32-widget tree", "ref: 32-widget tree, 3 levels (render)",
           "ref: 32-widget tree, 1x1 empty label damaged (render_dirty)",
+          "ref: build detail wave 480x90", "ref: detail wave 480x90 (render)",
+          "ref: detail wave 3 px scroll_rect + strip (render_dirty)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -159,7 +161,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 7  # Frame and Dirty marks
+    nframes = 8  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -215,6 +217,8 @@ def main():
         "indexed_t255": cyc.get("ref: 400x90 indexed8, 70% transparent index 255 (render)"),
         "tree_full": cyc.get("ref: 32-widget tree, 3 levels (render)"),
         "tree_walk": cyc.get("ref: 32-widget tree, 1x1 empty label damaged (render_dirty)"),
+        "detail_full": cyc.get("ref: detail wave 480x90 (render)"),
+        "detail_scroll": cyc.get("ref: detail wave 3 px scroll_rect + strip (render_dirty)"),
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,

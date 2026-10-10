@@ -113,6 +113,14 @@ pub trait RawTarget: DrawTarget<Color = Rgb565> {
     /// Raw image at `(x, y)` limited to `clip`; `tint` is the native colour
     /// of a [`RawImage::Mask`].
     fn blit(&mut self, x: i32, y: i32, img: &RawImage<'_>, clip: Rect, tint: u32);
+
+    /// Moves the pixels of `src` by `(dx, dy)` (overlap allowed), where both
+    /// ends are on the target. `false` if the target can't, so the caller
+    /// redraws instead.
+    fn copy_rect(&mut self, src: Rect, dx: i32, dy: i32) -> bool {
+        let _ = (src, dx, dy);
+        false
+    }
 }
 
 /// Compositor for [`RawTarget`]s: fills, glyph masks and raw images go
@@ -270,6 +278,8 @@ pub struct Rgb555Surface<'a> {
     /// One indexed8 row: `dst[i] = lut[src[i]]`, leaving `dst[i]` where
     /// `src[i]` is the transparent index (default: [`indexed_row`]).
     pub index_row: fn(&mut [u16], &[u8], &[u16; 256], Option<u8>),
+    /// memmove of `n` pixels from index `src` to `dst` (default: [`move_px`]).
+    pub move_px: fn(&mut [u16], usize, usize, usize),
 }
 
 impl<'a> Rgb555Surface<'a> {
@@ -280,6 +290,7 @@ impl<'a> Rgb555Surface<'a> {
             h,
             fill_row: |row, v| row.fill(v),
             index_row: indexed_row,
+            move_px,
         }
     }
 
@@ -301,6 +312,19 @@ impl<'a> Rgb555Surface<'a> {
 #[inline]
 fn to555(c: Rgb565) -> u16 {
     Rgb555::from(c).into_storage()
+}
+
+/// `px[dst..dst + n] = px[src..src + n]` with overlap allowed; does nothing
+/// if either range is out of bounds.
+pub fn move_px(px: &mut [u16], src: usize, dst: usize, n: usize) {
+    if src
+        .max(dst)
+        .checked_add(n)
+        .is_some_and(|end| end <= px.len())
+    {
+        // SAFETY: both ranges were just checked to lie inside `px`.
+        unsafe { core::ptr::copy(px.as_ptr().add(src), px.as_mut_ptr().add(dst), n) }
+    }
 }
 
 /// `dst` 555 blended toward `src` 555 by coverage `a` (0..=255).
@@ -464,6 +488,25 @@ impl RawTarget for Rgb555Surface<'_> {
     #[inline]
     fn native(&self, color: Rgb565) -> u32 {
         to555(color) as u32
+    }
+
+    fn copy_rect(&mut self, src: Rect, dx: i32, dy: i32) -> bool {
+        let s = self.bounded(src);
+        let d = self.bounded(Rect::new(s.x + dx, s.y + dy, s.w, s.h));
+        if d.is_empty() {
+            return true;
+        }
+        let (stride, n, mv) = (self.w as usize, d.w as usize, self.move_px);
+        let at = |x: i32, y: i32| y as usize * stride + x as usize;
+        let px = &mut *self.px;
+        let mut row = |y: i32| mv(px, at(d.x - dx, y - dy), at(d.x, y), n);
+        // Moving down, go bottom-up so no source row is overwritten first.
+        if dy > 0 {
+            (d.y..d.bottom()).rev().for_each(&mut row);
+        } else {
+            (d.y..d.bottom()).for_each(&mut row);
+        }
+        true
     }
 
     fn fill_native(&mut self, rect: Rect, px: u32) {
@@ -1049,5 +1092,63 @@ mod tests {
         g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
             .unwrap();
         assert_eq!(red_rect(&px), Some(Rect::new(2, 2, 4, 2)));
+    }
+
+    #[test]
+    fn scroll_rect_matches_full_redraw() {
+        use core::cell::Cell;
+        // Content scrolled by (ox, oy): each pixel encodes its content coordinate.
+        struct Pan(Cell<(i32, i32)>);
+        unsafe impl Sync for Pan {}
+        impl crate::widget::CustomWidget for Pan {
+            fn render(
+                &self,
+                c: &mut dyn crate::widget::CustomCanvas,
+                r: Rect,
+                _: &crate::style::WidgetStyle,
+                _: crate::style::VisualState,
+            ) -> Result<(), crate::GuiError> {
+                let (ox, oy) = self.0.get();
+                for y in r.y..r.bottom() {
+                    for x in r.x..r.right() {
+                        let (u, v) = ((x + ox) as u16, (y + oy) as u16);
+                        c.fill_rect(
+                            Rect::new(x, y, 1, 1),
+                            Rgb565::new(u as u8 & 31, v as u8 & 63, (u ^ v) as u8 & 31),
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+        }
+        static PAN: Pan = Pan(Cell::new((0, 0)));
+        let area = Rect::new(4, 3, 30, 12);
+        let frame = |g: &Tree| {
+            let mut px = vec![0u16; 40 * 20];
+            g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+                .unwrap();
+            px
+        };
+        for (dx, dy) in [(-3, 0), (3, 0), (0, -2), (0, 2), (-1, 1), (5, -4), (31, 0)] {
+            PAN.0.set((0, 0));
+            let mut g = tree();
+            g.add_custom_widget(area, &PAN, crate::style::Style::new())
+                .unwrap();
+            let dot = g
+                .add_label(Rect::new(10, 6, 3, 3), "", crate::style::Style::new())
+                .unwrap();
+            let mut px = frame(&g);
+            // Pending damage whose pixels are stale: it must move with the scroll.
+            g.clear_dirty();
+            g.mark_widget_dirty(dot).unwrap();
+            for y in 6..9 {
+                px[y * 40 + 10..y * 40 + 13].fill(0x1234);
+            }
+            let mut s = Rgb555Surface::new(&mut px, 40, 20);
+            g.scroll_rect(&mut s, area, dx, dy).unwrap();
+            PAN.0.set((-dx, -dy));
+            g.render_dirty_with::<_, Direct>(&mut s).unwrap();
+            assert!(px == frame(&g), "dx {dx} dy {dy}");
+        }
     }
 }

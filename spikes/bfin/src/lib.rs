@@ -26,6 +26,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
     {
         s.fill_row = firmware::fill16;
         s.index_row = firmware::index_row;
+        s.move_px = firmware::move_px;
     }
     s
 }
@@ -110,6 +111,31 @@ unsafe impl Sync for Seg {}
 pub struct Wave {
     pub color: Rgb565,
 }
+
+/// A scrolling detail waveform: column `x` shows sample `x + offset`, and
+/// only columns inside the canvas clip are drawn.
+pub struct ScrollWave {
+    pub offset: Cell<i32>,
+    pub color: Rgb565,
+}
+// ponytail: single-threaded bench; the Cell is only touched between renders.
+unsafe impl Sync for ScrollWave {}
+
+impl CustomWidget for ScrollWave {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let clip = c.clip().intersection(r);
+        let half = (r.h / 2) as i32;
+        let mid = r.y + half;
+        for x in clip.x..clip.right() {
+            let n = (x - r.x + self.offset.get()) as u32;
+            // Sample hash scaled to 0..half without a divide.
+            let amp = ((n.wrapping_mul(2_654_435_761) >> 24) * half as u32 >> 8) as i32;
+            c.fill_rect(Rect::new(x, mid - amp, 1, 2 * amp as u32 + 1), self.color)?;
+        }
+        Ok(())
+    }
+}
+pub static DETAIL: ScrollWave = ScrollWave { offset: Cell::new(0), color: rgb(0x40a8e8) };
 
 impl CustomWidget for Wave {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
@@ -495,6 +521,20 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     g.mark_widget_dirty(dot)?;
     dirty(g, px);
     mark(Mark::Ref, px);
+    // Detail waveform 480x90: full render, then a 3 px scroll through
+    // scroll_rect (copy + redraw the 3 px strip).
+    let g = Gui::init_in_place(slot, view);
+    let detail = Rect::new(0, 60, W, 90);
+    g.add_custom_widget(detail, &DETAIL, st(Some(BLACK), WHITE, SMALL, pad(0, 0)))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    g.clear_dirty();
+    DETAIL.offset.set(3);
+    g.scroll_rect(&mut fb(px), detail, -3, 0)?;
+    dirty(g, px);
+    mark(Mark::Dirty, px);
+
     // The same label with no text: the difference / 21 is the cost per glyph.
     let g = Gui::init_in_place(slot, view);
     g.add_label(Rect::new(0, 44, LIST_W, ROW_H), "", row_style(1, false))?;
@@ -521,6 +561,8 @@ mod firmware {
         fn cdj_gui_fill16(dst: *mut u16, value: u16, count: usize) -> *mut u16;
         /// copy.S: dst[i] = table[src[i]], two pixels an iteration; with key
         /// nonzero, index 255 leaves dst[i] as it is.
+        /// copy.S: memmove; backwards only when dst lies inside the source.
+        fn cdj_gui_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
     }
 
@@ -534,6 +576,13 @@ mod firmware {
         };
         let n = row.len().min(src.len());
         unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), key) };
+    }
+
+    /// The crate's bounds check, then the firmware memmove (bytes).
+    pub fn move_px(px: &mut [u16], src: usize, dst: usize, n: usize) {
+        if src.max(dst).checked_add(n).is_some_and(|end| end <= px.len()) {
+            unsafe { cdj_gui_memmove(px.as_mut_ptr().add(dst).cast(), px.as_ptr().add(src).cast(), 2 * n) };
+        }
     }
 
     pub fn fill16(row: &mut [u16], v: u16) {

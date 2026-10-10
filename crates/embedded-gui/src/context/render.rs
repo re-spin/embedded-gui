@@ -87,6 +87,50 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    /// Scrolls the pixels of `rect` already on `target` by `(dx, dy)` and
+    /// damages only the band that scrolled in, so the next `render_dirty`
+    /// draws just that strip. Everything drawn in `rect` must move with it:
+    /// damage any overlay on top yourself. Damage still pending inside `rect`
+    /// moves along. If the target can't copy, all of `rect` is damaged.
+    pub fn scroll_rect<D: crate::render::RawTarget>(
+        &mut self,
+        target: &mut D,
+        rect: Rect,
+        dx: i32,
+        dy: i32,
+    ) -> Result<(), GuiError> {
+        let r = rect.intersection(self.viewport);
+        if r.is_empty() || (dx == 0 && dy == 0) {
+            return Ok(());
+        }
+        let shift = |s: Rect| Rect::new(s.x + dx, s.y + dy, s.w, s.h);
+        let kept = r.intersection(shift(r));
+        if kept.is_empty()
+            || !target.copy_rect(Rect::new(kept.x - dx, kept.y - dy, kept.w, kept.h), dx, dy)
+        {
+            return self.damage(r);
+        }
+        // Pending damage was not drawn yet, so its stale pixels moved too.
+        let pending =
+            heapless::Vec::<Rect, DIRTY>::from_slice(self.dirty.as_slice()).unwrap_or_default();
+        for d in &pending {
+            self.damage(shift(d.intersection(r)).intersection(r))?;
+        }
+        let (w, h) = (dx.unsigned_abs(), dy.unsigned_abs());
+        let x = if dx > 0 { r.x } else { r.right() - w as i32 };
+        let y = if dy > 0 { r.y } else { r.bottom() - h as i32 };
+        self.damage(Rect::new(r.x, y, r.w, h))?;
+        self.damage(Rect::new(x, r.y, w, r.h))
+    }
+
+    /// Adds damage; if the tracker is full, falls back to the whole viewport.
+    fn damage(&mut self, r: Rect) -> Result<(), GuiError> {
+        if self.dirty.add(r).is_err() {
+            self.dirty.mark_all(self.viewport)?;
+        }
+        Ok(())
+    }
+
     /// Renders dirty regions to a hardware display controller implementing [`crate::render::WindowedDrawTarget`].
     /// Sets the physical controller's column/row window bounds (`set_window`) before rendering,
     /// enabling hardware SPI/DMA transfers exclusively to the dirty sub-window.
