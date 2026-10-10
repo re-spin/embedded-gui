@@ -844,7 +844,14 @@ impl<'a> WidgetNode<'a> {
                 Ok(())
             }
             WidgetKind::Panel => render_panel(ctx, rect, style, state),
-            WidgetKind::Label(text) => render_label(ctx, rect, text, style),
+            WidgetKind::Label(text) => {
+                let overflow = if self.flags.contains(WidgetFlags::WHOLE_GLYPHS) {
+                    crate::render::TextOverflow::WholeGlyphs
+                } else {
+                    crate::render::TextOverflow::Clip
+                };
+                render_label(ctx, rect, text, style, overflow)
+            }
             WidgetKind::Button(text) => render_button(ctx, rect, text, style, state),
             WidgetKind::ProgressBar { value } => render_progress(ctx, rect, value, style, state),
             #[cfg(feature = "rich-widgets")]
@@ -1325,6 +1332,7 @@ fn render_label<D, C>(
     rect: Rect,
     text: &str,
     style: &WidgetStyle,
+    overflow: crate::render::TextOverflow,
 ) -> Result<(), D::Error>
 where
     D: embedded_graphics_core::draw_target::DrawTarget<Color = Rgb565>,
@@ -1337,7 +1345,9 @@ where
     ctx.draw_text_in(
         inner,
         text,
-        TextStyle::new(style.text).with_font(style.font),
+        TextStyle::new(style.text)
+            .with_font(style.font)
+            .with_overflow(overflow),
     )
 }
 

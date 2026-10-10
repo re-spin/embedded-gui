@@ -32,6 +32,9 @@ pub enum TextWrap {
 pub enum TextOverflow {
     Clip,
     Ellipsis,
+    /// Glyphs that would end past the right edge are dropped, so no partial
+    /// glyph is drawn (the stock CDJ's behaviour).
+    WholeGlyphs,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

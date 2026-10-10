@@ -1094,6 +1094,9 @@ where
             if show_token {
                 let budget = rect.w.saturating_sub(font.text_width(token));
                 draw_len = fit_len(text, start, len, budget, font, style.kerning);
+            } else if style.overflow_policy == TextOverflowPolicy::Global(TextOverflow::WholeGlyphs)
+            {
+                draw_len = fit_len(text, start, len, rect.w, font, style.kerning);
             }
             let line_w = self.substring_width(text, start, draw_len, font, style.kerning);
             let x = match style.align {

@@ -1324,4 +1324,31 @@ mod tests {
         s.smear_x(Rect::new(0, 0, 4, 4), 8);
         assert!(c == src);
     }
+
+    #[test]
+    fn whole_glyphs_drops_the_glyph_past_the_edge() {
+        use crate::{font::FontId, widget::WidgetFlags};
+        // 'W' is 6 px wide and lights only its first column: in 13 px, two
+        // fit whole (12) and the third's first column (x 12) still shows.
+        let lit = |whole: bool| {
+            let mut g = crate::GuiContext::<'static, 4, 4, 4>::new(Rect::new(0, 0, 20, 5));
+            let id = g
+                .add_label(
+                    Rect::new(0, 0, 13, 5),
+                    "WWW",
+                    crate::style::Style {
+                        font: FontId::Dynamic(&PROP),
+                        ..crate::style::Style::new()
+                    },
+                )
+                .unwrap();
+            g.set_flag(id, WidgetFlags::WHOLE_GLYPHS, whole).unwrap();
+            let mut px = vec![0u16; 20 * 5];
+            g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 20, 5))
+                .unwrap();
+            (0..20).filter(|x| px[*x] != 0).collect::<vec::Vec<_>>()
+        };
+        assert_eq!(lit(false), [0, 6, 12]);
+        assert_eq!(lit(true), [0, 6]);
+    }
 }

@@ -13,6 +13,9 @@ impl WidgetFlags {
     pub const FOCUSABLE: Self = Self(1 << 4);
     pub const CLIP_CHILDREN: Self = Self(1 << 5);
     pub const EVENT_BUBBLE: Self = Self(1 << 6);
+    /// A Label's text ends at the last glyph that fits whole
+    /// ([`TextOverflow::WholeGlyphs`](crate::render::TextOverflow::WholeGlyphs)).
+    pub const WHOLE_GLYPHS: Self = Self(1 << 7);
 
     pub const fn empty() -> Self {
         Self(0)
