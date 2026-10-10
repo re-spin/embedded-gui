@@ -723,6 +723,9 @@ mod firmware {
         fn spike_smear_line(a: *const SmearArgs);
         /// bfin/fill.S: a solid block at least 4 px wide.
         fn spike_fill_rows(a: *const FillArgs);
+        /// bfin/index.S: an indexed8 row with transparent index 255, skipping
+        /// four transparent pixels on one compare.
+        fn spike_index_key_row(dst: *mut u16, src: *const u8, n: usize, lut: *const u16);
         /// bfin/mask1.S: an A1 mask block up to 16 px wide.
         fn spike_mask1_rows(a: *const Mask1Args);
         /// copy.S: memcpy, words when dst and src share alignment mod 4.
@@ -735,16 +738,15 @@ mod firmware {
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
     }
 
-    /// The firmware's indexed row for opaque pictures and transparent index
-    /// 255; any other transparent index takes the crate's row.
+    /// The firmware's indexed row for opaque pictures, bfin/index.S for
+    /// transparent index 255; any other transparent index takes the crate's.
     pub fn index_row(row: &mut [u16], src: &[u8], lut: &[u16; 256], transparent: Option<u8>) {
-        let key = match transparent {
-            None => 0,
-            Some(255) => 1,
-            Some(_) => return embedded_gui::render::raw::indexed_row(row, src, lut, transparent),
-        };
         let n = row.len().min(src.len());
-        unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), key) };
+        match transparent {
+            None => unsafe { cdj_gui_index_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr(), 0) },
+            Some(255) => unsafe { spike_index_key_row(row.as_mut_ptr(), src.as_ptr(), n, lut.as_ptr()) },
+            Some(_) => embedded_gui::render::raw::indexed_row(row, src, lut, transparent),
+        }
     }
 
     /// What bfin/mask1.S takes (see its header).

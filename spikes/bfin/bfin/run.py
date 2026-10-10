@@ -131,7 +131,7 @@ def main():
     run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", MODS / "rust/gui/presentation/asm/copy.S", "-o", copy)
     objs.append(copy)
     # The spike's own assembly (the smear's per-pixel loops, the A1 mask row).
-    for name in ("smear", "mask1", "fill"):
+    for name in ("smear", "mask1", "fill", "index"):
         run(TC / "gcc-bfin/bin/bfin-elf-gcc", "-mcpu=bf531", "-c", SPIKE / f"bfin/{name}.S", "-o", OUT / f"{name}.o")
         objs.append(OUT / f"{name}.o")
     elf = OUT / "spike.elf"
