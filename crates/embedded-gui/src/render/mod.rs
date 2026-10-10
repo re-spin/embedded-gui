@@ -662,9 +662,9 @@ where
         match gradient.direction {
             GradientDirection::Vertical => {
                 let denom = rect.h.saturating_sub(1).max(1);
+                let mut ramp = Ramp::new((draw.y - rect.y).max(0) as u32, denom);
                 for y in draw.y..draw.bottom() {
-                    let numer = ((y - rect.y).max(0) as u32).min(denom);
-                    let mut t = ((numer * 255) / denom) as u8;
+                    let mut t = ramp.next();
                     t = match self.quality {
                         RenderQuality::Low => 128,
                         RenderQuality::Medium => (t / 64) * 64,
@@ -697,9 +697,8 @@ where
                 // while `self.target` is borrowed mutably.
                 let quality = self.quality;
                 let (g_start, g_end) = (gradient.start, gradient.end);
-                let column_color = move |x: i32| -> Rgb565 {
-                    let numer = ((x - rect.x).max(0) as u32).min(denom);
-                    let mut t = ((numer * 255) / denom) as u8;
+                let ramp_at = |x: i32| Ramp::new((x - rect.x).max(0) as u32, denom);
+                let column_color = move |mut t: u8| -> Rgb565 {
                     t = match quality {
                         RenderQuality::Low => 128,
                         RenderQuality::Medium => (t / 64) * 64,
@@ -737,8 +736,9 @@ where
                 let row_fits = span > 0 && (span as usize) <= MAX_ROW;
                 if fast_solid && row_fits && draw.h > 0 {
                     let mut row_buf = [Rgb565::BLACK; MAX_ROW];
-                    for (slot, x) in row_buf.iter_mut().zip(x_lo..x_hi) {
-                        *slot = column_color(x);
+                    let mut ramp = ramp_at(x_lo);
+                    for slot in row_buf.iter_mut().take(span as usize) {
+                        *slot = column_color(ramp.next());
                     }
                     let row = &row_buf[..span as usize];
                     C::repeat_row(
@@ -751,12 +751,14 @@ where
                 // Corner columns, plus everything else when blending is required or the
                 // span is too wide for the row buffer.
                 let span_done = fast_solid && row_fits;
+                let mut ramp = ramp_at(draw.x);
                 for x in draw.x..draw.right() {
+                    let t = ramp.next();
                     let in_span = x >= x_lo && x < x_hi;
                     if in_span && span_done {
                         continue;
                     }
-                    let color = column_color(x);
+                    let color = column_color(t);
                     if in_span {
                         for y in draw.y..draw.bottom() {
                             self.pixel(x, y, color, opacity)?;
@@ -2611,6 +2613,44 @@ fn cross(ux: f32, uy: f32, vx: f32, vy: f32) -> f32 {
     ux * vy - uy * vx
 }
 
+/// `numer * 255 / denom` for `numer = start, start + 1, ...` (up to `denom`):
+/// one divide up front, then a quotient/remainder step (no divider on some
+/// targets).
+struct Ramp {
+    q: u32,
+    r: u32,
+    dq: u32,
+    dr: u32,
+    denom: u32,
+}
+
+impl Ramp {
+    fn new(start: u32, denom: u32) -> Self {
+        let denom = denom.max(1);
+        let n = start.min(denom) * 255;
+        let q = n / denom;
+        let dq = if denom > 255 { 0 } else { 255 / denom };
+        Self {
+            q,
+            r: n - q * denom,
+            dq,
+            dr: 255 - dq * denom,
+            denom,
+        }
+    }
+
+    fn next(&mut self) -> u8 {
+        let t = self.q.min(255) as u8;
+        self.q += self.dq;
+        self.r += self.dr;
+        if self.r >= self.denom {
+            self.r -= self.denom;
+            self.q += 1;
+        }
+        t
+    }
+}
+
 fn in_rounded_rect(x: i32, y: i32, rect: Rect, radius: u8) -> bool {
     if rect.is_empty() {
         return false;
@@ -2949,6 +2989,18 @@ mod tests {
         // not the one directly below it.
         assert_eq!(buf.pixel_at(40, 25), Some(Rgb565::RED));
         assert_eq!(buf.pixel_at(25, 40), Some(Rgb565::BLACK));
+    }
+
+    #[test]
+    fn ramp_matches_divide() {
+        for denom in [1u32, 2, 3, 7, 23, 89, 255, 256, 300, 479] {
+            for start in [0, 1, denom / 2, denom] {
+                let mut ramp = Ramp::new(start, denom);
+                for numer in start..=denom {
+                    assert_eq!(ramp.next() as u32, numer * 255 / denom, "{numer}/{denom}");
+                }
+            }
+        }
     }
 
     #[test]
