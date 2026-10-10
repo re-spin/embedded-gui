@@ -24,7 +24,7 @@ pub fn fb(px: &mut [u16]) -> Rgb555Surface<'_> {
     let mut s = Rgb555Surface::new(px, W, H);
     #[cfg(target_os = "none")]
     {
-        s.fill_row = firmware::fill16;
+        s.fill_rows = firmware::fill_rows;
         s.index_row = firmware::index_row;
         s.move_px = firmware::move_px;
         s.copy_px = firmware::copy_px;
@@ -719,19 +719,19 @@ mod firmware {
 
     unsafe extern "C" {
         fn spike_panic(file: *const u8, len: usize, line: u32) -> !;
-        /// cdj-2000nxs-mods rust/gui/presentation/asm/copy.S: 32-bit stores in a
-        /// hardware loop, the firmware's row fill.
-        fn cdj_gui_fill16(dst: *mut u16, value: u16, count: usize) -> *mut u16;
-        /// copy.S: dst[i] = table[src[i]], two pixels an iteration; with key
-        /// nonzero, index 255 leaves dst[i] as it is.
         /// bfin/smear.S: one line of the box smear.
         fn spike_smear_line(a: *const SmearArgs);
+        /// bfin/fill.S: a solid block at least 4 px wide.
+        fn spike_fill_rows(a: *const FillArgs);
         /// bfin/mask1.S: an A1 mask block up to 16 px wide.
         fn spike_mask1_rows(a: *const Mask1Args);
         /// copy.S: memcpy, words when dst and src share alignment mod 4.
         fn cdj_gui_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         /// copy.S: memmove; backwards only when dst lies inside the source.
         fn cdj_gui_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
+        /// copy.S (cdj-2000nxs-mods rust/gui/presentation/asm): dst[i] =
+        /// table[src[i]], two pixels an iteration; with key nonzero, index 255
+        /// leaves dst[i] as it is.
         fn cdj_gui_index_row(dst: *mut u16, src: *const u8, n: usize, table: *const u16, key: i32);
     }
 
@@ -863,8 +863,44 @@ mod firmware {
         unsafe { cdj_gui_memcpy(dst.as_mut_ptr().cast(), src.as_ptr().cast(), 2 * n) };
     }
 
-    pub fn fill16(row: &mut [u16], v: u16) {
-        unsafe { cdj_gui_fill16(row.as_mut_ptr(), v, row.len()) };
+    /// What bfin/fill.S takes (see its header).
+    #[repr(C)]
+    pub struct FillArgs {
+        first: *mut u16,
+        dstep: usize,
+        words: usize,
+        h: usize,
+        v: u32,
+        start: *mut u32,
+        last: *mut u16,
+        next: usize,
+    }
+
+    /// The crate's fill_rows in assembly on an even stride (every row aligned
+    /// alike); an odd stride takes the crate's.
+    pub fn fill_rows(px: &mut [u16], at: usize, stride: usize, w: usize, h: usize, v: u16) {
+        // Below 2^15 each, (h - 1) * stride + w stays under 2^31 and `at` is
+        // under px.len(): no overflow, so no 64-bit checked multiply.
+        let small = (w | h | stride) < 0x8000 && w != 0 && h != 0;
+        if !small || stride & 1 != 0 || at + (h - 1) * stride + w > px.len() {
+            return embedded_gui::render::raw::fill_rows(px, at, stride, w, h, v);
+        }
+        let first = unsafe { px.as_mut_ptr().add(at) };
+        let (a, e) = (first as usize, first as usize + 2 * w);
+        let (start, stop) = ((a + 2) & !3, e & !3);
+        let words = if w < 4 { 0 } else { (stop - start) >> 2 };
+        let start = if w < 4 { a + 2 * (w >> 1) } else { start };
+        let args = FillArgs {
+            first,
+            dstep: 2 * stride,
+            words,
+            h,
+            v: v as u32 * 0x1_0001,
+            start: start as *mut u32,
+            last: unsafe { first.add(w - 1) },
+            next: 2 * stride - 4 * words,
+        };
+        unsafe { spike_fill_rows(&args) };
     }
 
     /// Reports file:line to the bench and exits the simulator (no fmt).

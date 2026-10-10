@@ -339,8 +339,9 @@ pub struct Rgb555Surface<'a> {
     pub px: &'a mut [u16],
     pub w: u32,
     pub h: u32,
-    /// Fills a row slice with one pixel value.
-    pub fill_row: fn(&mut [u16], u16),
+    /// Fills `h` rows of `w` pixels from index `at`, rows `stride` apart:
+    /// `(px, at, stride, w, h, value)` (default: [`fill_rows`]).
+    pub fill_rows: fn(&mut [u16], usize, usize, usize, usize, u16),
     /// One indexed8 row: `dst[i] = lut[src[i]]`, leaving `dst[i]` where
     /// `src[i]` is the transparent index (default: [`indexed_row`]).
     pub index_row: fn(&mut [u16], &[u8], &[u16; 256], Option<u8>),
@@ -365,7 +366,7 @@ impl<'a> Rgb555Surface<'a> {
             px,
             w,
             h,
-            fill_row: |row, v| row.fill(v),
+            fill_rows,
             index_row: indexed_row,
             move_px,
             copy_px: <[u16]>::copy_from_slice,
@@ -507,6 +508,36 @@ fn smear_n<const SHIFT: u32>(px: &mut [u16], start: usize, step: usize, len: usi
 #[inline]
 fn to555(c: Rgb565) -> u16 {
     Rgb555::from(c).into_storage()
+}
+
+/// Default [`Rgb555Surface::fill_rows`]; does nothing if the area is out of
+/// bounds.
+pub fn fill_rows(px: &mut [u16], at: usize, stride: usize, w: usize, h: usize, v: u16) {
+    let end = h
+        .checked_sub(1)
+        .and_then(|last| last.checked_mul(stride))
+        .and_then(|o| o.checked_add(at))
+        .and_then(|o| o.checked_add(w));
+    let Some(area) = end.and_then(|end| px.get_mut(at..end)) else {
+        return;
+    };
+    // ponytail: below 32 px a call per row costs more than the stores.
+    if w < 32 {
+        let ptr = area.as_mut_ptr();
+        for row in 0..h {
+            for col in 0..w {
+                // SAFETY: area.len() == (h - 1) * stride + w, so every
+                // row * stride + col < area.len() (row < h, col < w).
+                unsafe { *ptr.add(row * stride + col) = v };
+            }
+        }
+        return;
+    }
+    for row in area.chunks_mut(stride.max(1)) {
+        if let Some(row) = row.get_mut(..w) {
+            row.fill(v);
+        }
+    }
 }
 
 /// `px[dst..dst + n] = px[src..src + n]` with overlap allowed; does nothing
@@ -706,29 +737,19 @@ impl RawTarget for Rgb555Surface<'_> {
 
     fn fill_native(&mut self, rect: Rect, px: u32) {
         let r = self.bounded(rect);
-        // ponytail: below 8 px a call to the row fill costs more than the stores.
-        if r.w < 8 {
-            // One bounds check for the area; each chunk starts at the rect's left edge.
-            let (stride, n) = (self.w as usize, r.w as usize);
-            let first = r.y as usize * stride + r.x as usize;
-            let last = (r.bottom() as usize - 1) * stride + r.right() as usize;
-            let Some(area) = self.px.get_mut(first..last) else {
-                return;
-            };
-            let (h, ptr) = (r.h as usize, area.as_mut_ptr());
-            for row in 0..h {
-                for col in 0..n {
-                    // SAFETY: area.len() == (h - 1) * stride + n, so every
-                    // row * stride + col < area.len() (row < h, col < n).
-                    unsafe { *ptr.add(row * stride + col) = px as u16 };
-                }
-            }
+        if r.is_empty() {
             return;
         }
-        let fill = self.fill_row;
-        for y in r.y..r.bottom() {
-            fill(self.row(y, r.x, r.right()), px as u16);
-        }
+        let at = r.y as usize * self.w as usize + r.x as usize;
+        let fill_rows = self.fill_rows;
+        fill_rows(
+            self.px,
+            at,
+            self.w as usize,
+            r.w as usize,
+            r.h as usize,
+            px as u16,
+        );
     }
 
     fn repeat_row(&mut self, rect: Rect, row: &[Rgb565]) {

@@ -73,6 +73,9 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | Linear gradient `t` stepped (one divide per fill, not per row/column) | browse full / player full | 806k / 1.32M | 634k / 1.14M |
 | `fill_rect` skips `fill_rounded_rect_alpha` at the base transform/layer | `fill_rect` 1x1 / 16x16 (probe) | 580 / 1.92k | 421 / 1.76k |
 | | player full / 400 waveform columns | 1.14M / 405k | 992k / 336k |
+| `fill_rows` block hook (replaces `fill_row`) + `bfin/fill.S` | `fill_rect` 1x1 / 16x16 / 480x1 (probe) | 421 / 1.76k / 674 | 550 / 758 / 794 |
+| | full-screen panel / detail wave 480x90 | 78.7k / 541k | 59.7k / 393k |
+| | browse full / player full | 635k / 992k | 571k / 953k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 
