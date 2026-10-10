@@ -527,7 +527,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         let pad_x = style.padding.left.max(0) as u32 + style.padding.right.max(0) as u32;
         let pad_y = style.padding.top.max(0) as u32 + style.padding.bottom.max(0) as u32;
         let border = style.border.width as u32 * 2;
-        let text_width = |text: &str| text.chars().count() as u32 * style.font.advance();
+        let text_width = |text: &str| style.font.text_width(text);
         let text_height = style.font.line_height();
 
         let content = match node.kind {

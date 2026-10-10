@@ -28,7 +28,7 @@ impl<'a> Span<'a> {
 
     pub fn metrics(&self) -> TextMetrics {
         TextMetrics {
-            width: self.width_chars() as u32 * self.style.font.advance(),
+            width: self.style.font.text_width(self.content),
             height: self.style.font.line_height(),
         }
     }
@@ -74,10 +74,7 @@ impl<'a> Line<'a> {
         let mut width = 0u32;
         let mut height = CHAR_HEIGHT;
         for span in self.spans {
-            width = width.saturating_add(
-                span.content.chars().filter(|&ch| ch != '\n').count() as u32
-                    * span.style.font.advance(),
-            );
+            width = width.saturating_add(span.style.font.text_width(span.content));
             height = height.max(span.style.font.line_height());
         }
         TextMetrics { width, height }
@@ -157,6 +154,7 @@ impl<'a> Line<'a> {
             .max(1);
         let limit_width = max_width.max(min_advance);
         let mut last_ws_break = None;
+        let mut prev = None;
 
         for (ch, style) in self
             .spans
@@ -168,7 +166,9 @@ impl<'a> Line<'a> {
                 return (len, true);
             }
             if matches!(wrap, TextWrap::Character | TextWrap::Word) {
-                let advance = style.font.advance();
+                let kerned =
+                    width as i32 + style.font.kern(prev, ch) + style.font.glyph_advance(ch) as i32;
+                let advance = (kerned.max(0) as u32).saturating_sub(width);
                 if len > 0 && width.saturating_add(advance) > limit_width {
                     if matches!(wrap, TextWrap::Word) {
                         if let Some(idx) = last_ws_break {
@@ -182,25 +182,29 @@ impl<'a> Line<'a> {
             if matches!(wrap, TextWrap::Word) && ch.is_whitespace() {
                 last_ws_break = Some(len + 1);
             }
+            prev = Some(ch);
             len += 1;
         }
 
         (len, false)
     }
 
+    /// Width of chars `start..start + len`: per-glyph advances plus kerning,
+    /// matching how the renderer places them.
     pub(crate) fn segment_width(&self, start: usize, len: usize) -> u32 {
-        self.spans
+        let mut width = 0i32;
+        let mut prev = None;
+        let chars = self
+            .spans
             .iter()
-            .flat_map(|span| span.content.chars().map(move |ch| (ch, span.style)))
-            .enumerate()
-            .filter_map(|(idx, (ch, style))| {
-                if idx < start || idx >= start + len || ch == '\n' {
-                    None
-                } else {
-                    Some(style.font.advance())
-                }
-            })
-            .sum()
+            .flat_map(|span| span.content.chars().map(move |ch| (ch, span.style)));
+        for (ch, style) in chars.skip(start).take(len).filter(|(ch, _)| *ch != '\n') {
+            width = width
+                .saturating_add(style.font.kern(prev, ch))
+                .saturating_add(style.font.glyph_advance(ch) as i32);
+            prev = Some(ch);
+        }
+        width.max(0) as u32
     }
 }
 

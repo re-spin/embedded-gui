@@ -624,6 +624,62 @@ mod tests {
         }
     }
 
+    /// Proportional font: 'W' advances 6, others 2; kern(W, i) = -1; 'i' sits one
+    /// row down. Every glyph is a 1x3 A1 bar.
+    struct Prop;
+    impl crate::font::Font for Prop {
+        fn advance(&self) -> u32 {
+            4
+        }
+        fn line_height(&self) -> u32 {
+            4
+        }
+        fn draw_glyph(&self, _: char, _: &mut dyn FnMut(i32, i32)) {}
+        fn glyph_mask(&self, _: char) -> Option<Mask<'static>> {
+            Some(Mask {
+                w: 1,
+                h: 3,
+                stride: 1,
+                format: MaskFormat::A1,
+                data: &[0x80; 3],
+            })
+        }
+        fn glyph_advance(&self, ch: char) -> u32 {
+            if ch == 'W' { 6 } else { 2 }
+        }
+        fn kern(&self, prev: char, next: char) -> i32 {
+            if (prev, next) == ('W', 'i') { -1 } else { 0 }
+        }
+        fn glyph_offset(&self, ch: char) -> (i32, i32) {
+            if ch == 'i' { (0, 1) } else { (0, 0) }
+        }
+    }
+    static PROP: Prop = Prop;
+
+    #[test]
+    fn proportional_metrics_kerning_and_offsets() {
+        use crate::font::FontId;
+        let font = FontId::Dynamic(&PROP);
+        let mut px = vec![0u16; 16 * 5];
+        let mut s = Rgb555Surface::new(&mut px, 16, 5);
+        let color = Rgb565::new(31, 63, 31);
+        RenderCtx::<_, Direct>::with_compositor(&mut s, Rect::new(0, 0, 16, 5), None)
+            .draw_text_with_font(0, 0, "Wi", color, font)
+            .unwrap();
+        let on: vec::Vec<(usize, usize)> = (0..16 * 5)
+            .filter(|i| px[*i] != 0)
+            .map(|i| (i % 16, i / 16))
+            .collect();
+        // 'W' at pen 0; 'i' at 0 + 6 - 1 = 5, one row down.
+        assert_eq!(on, [(0, 0), (0, 1), (5, 1), (0, 2), (5, 2), (5, 3)]);
+        type R<'a> = RenderCtx<'a, Rgb555Surface<'a>, Direct>;
+        assert_eq!(R::text_metrics_with_font("Wi", font).width, 7);
+        // Width-based wrapping: two W (12 px) fit in 13, the third wraps.
+        let m =
+            R::text_metrics_wrapped_with_font("WWW", 13, crate::render::TextWrap::Character, font);
+        assert_eq!((m.width, m.height), (12, 4 + 1 + 4));
+    }
+
     #[test]
     fn blend555_channels() {
         let (white, red, blue) = (0x7fff, 0x7c00, 0x001f);

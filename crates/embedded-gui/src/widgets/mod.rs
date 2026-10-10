@@ -1688,8 +1688,7 @@ where
         )?;
 
         if state == VisualState::Focused {
-            let cursor_x =
-                inner.x + current_text.chars().count() as i32 * style.font.advance() as i32;
+            let cursor_x = inner.x + style.font.text_width(current_text) as i32;
             if cursor_x < inner.right() {
                 ctx.fill_rect(Rect::new(cursor_x, inner.y, 1, inner.h), style.accent)?;
             }
@@ -3250,12 +3249,11 @@ where
     let step = spec.item_step.max(1) as i32;
     let half = spec.visible_slots.max(1) as i32 / 2;
     let center_y = inner.y + inner.h as i32 / 2;
-    let advance = style.font.advance() as i32;
     let line_height = style.font.line_height() as i32;
     let selected = selected.min(items.len() - 1);
 
     let text_left = |text: &str| {
-        let width = text.chars().count() as i32 * advance;
+        let width = style.font.text_width(text) as i32;
         (inner.x + (inner.w as i32 - width) / 2, width)
     };
 

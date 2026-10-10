@@ -968,19 +968,22 @@ where
         font: impl Into<FontId>,
     ) -> Result<(), D::Error> {
         let font = font.into();
-        let advance = font.advance() as i32;
         let line_h = font.line_height() as i32;
         let mut cursor_x = x;
         let mut cursor_y = y;
+        let mut prev = None;
         let ink = self.text_ink(color, 255);
         for ch in text.chars() {
             if ch == '\n' {
                 cursor_x = x;
                 cursor_y += line_h;
+                prev = None;
                 continue;
             }
+            cursor_x += font.kern(prev, ch);
             self.draw_glyph(cursor_x, cursor_y, ch, color, 255, font, ink)?;
-            cursor_x += advance;
+            cursor_x += font.glyph_advance(ch) as i32;
+            prev = Some(ch);
         }
         Ok(())
     }
@@ -1038,9 +1041,7 @@ where
             return Ok(());
         }
 
-        let advance = font.advance();
         let line_h = font.line_height();
-        let max_chars = rect.w.checked_div(advance).unwrap_or(0).max(1) as usize;
         let char_count = text.chars().count();
         let line_step = line_h + style.line_spacing as u32;
         // `count_lines` re-walks the same wrap boundaries that the draw loop
@@ -1052,7 +1053,7 @@ where
         let mut y = match style.vertical_align {
             VerticalAlign::Top => rect.y,
             VerticalAlign::Middle | VerticalAlign::Bottom => {
-                let line_count = count_lines(text, max_chars, style.wrap).max(1);
+                let line_count = count_lines(text, rect.w, font, style.wrap).max(1);
                 let total_h = line_count as u32 * line_h
                     + line_count.saturating_sub(1) as u32 * style.line_spacing as u32;
                 if matches!(style.vertical_align, VerticalAlign::Middle) {
@@ -1073,7 +1074,7 @@ where
             if rendered_lines >= max_lines {
                 break;
             }
-            let (len, consumed_newline) = line_len_at(text, start, max_chars, style.wrap);
+            let (len, consumed_newline) = line_len_at(text, start, rect.w, font, style.wrap);
             let mut draw_len = len;
             let is_last_allowed_line = rendered_lines.saturating_add(1) >= max_lines;
             let use_ellipsis = match style.overflow_policy {
@@ -1759,7 +1760,7 @@ where
     pub fn text_metrics_with_font(text: &str, font: impl Into<FontId>) -> TextMetrics {
         let font = font.into();
         TextMetrics {
-            width: text.chars().count() as u32 * font.advance(),
+            width: font.text_width(text),
             height: font.line_height(),
         }
     }
@@ -1775,9 +1776,8 @@ where
         font: impl Into<FontId>,
     ) -> TextMetrics {
         let font = font.into();
-        let max_chars = (max_width / font.advance()).max(1) as usize;
-        let lines = count_lines(text, max_chars, wrap).max(1);
-        let widest = widest_line(text, max_chars, wrap) as u32 * font.advance();
+        let lines = count_lines(text, max_width, font, wrap).max(1);
+        let widest = widest_line(text, max_width, font, wrap);
         TextMetrics {
             width: widest.min(max_width),
             height: lines as u32 * font.line_height() + lines.saturating_sub(1) as u32,
@@ -1797,13 +1797,13 @@ where
         font: FontId,
         kerning: bool,
     ) -> Result<(), D::Error> {
-        let advance = font.advance() as i32;
         let mut cursor_x = x;
         let mut prev: Option<char> = None;
         let ink = self.text_ink(color, opacity);
         for ch in text.chars().skip(start).take(len) {
+            cursor_x += font.kern(prev, ch);
             self.draw_glyph(cursor_x, y, ch, color, opacity, font, ink)?;
-            cursor_x += advance + kerning_adjust(prev, ch, kerning);
+            cursor_x += font.glyph_advance(ch) as i32 + kerning_adjust(prev, ch, kerning);
             prev = Some(ch);
         }
         Ok(())
@@ -1820,8 +1820,8 @@ where
         let mut width = 0u32;
         let mut prev = None;
         for ch in text.chars().skip(start).take(len) {
-            width = width.saturating_add(font.advance());
-            let adjust = kerning_adjust(prev, ch, kerning);
+            width = width.saturating_add(font.glyph_advance(ch));
+            let adjust = font.kern(prev, ch) + kerning_adjust(prev, ch, kerning);
             if adjust < 0 {
                 width = width.saturating_sub((-adjust) as u32);
             } else {
@@ -1866,6 +1866,7 @@ where
         len: usize,
     ) -> Result<(), D::Error> {
         let mut cursor_x = x;
+        let mut prev = None;
         for (idx, (ch, style)) in line
             .spans
             .iter()
@@ -1879,26 +1880,18 @@ where
                 break;
             }
             if ch != '\n' {
-                self.draw_char_with_font(cursor_x, y, ch, style.color, 255, style.font)?;
-                cursor_x += style.font.advance() as i32;
+                cursor_x += style.font.kern(prev, ch);
+                let ink = self.text_ink(style.color, 255);
+                self.draw_glyph(cursor_x, y, ch, style.color, 255, style.font, ink)?;
+                cursor_x += style.font.glyph_advance(ch) as i32;
+                prev = Some(ch);
             }
         }
         Ok(())
     }
 
     fn line_segment_width(&self, line: text::Line<'_>, start: usize, len: usize) -> u32 {
-        line.spans
-            .iter()
-            .flat_map(|span| span.content.chars().map(move |ch| (ch, span.style.font)))
-            .enumerate()
-            .filter_map(|(idx, (ch, font))| {
-                if idx < start || idx >= start + len || ch == '\n' {
-                    None
-                } else {
-                    Some(font.advance())
-                }
-            })
-            .sum()
+        line.segment_width(start, len)
     }
 
     /// Per-call text setup: the target ink when glyph masks can go straight
@@ -1928,6 +1921,8 @@ where
     ) -> Result<(), D::Error> {
         if let Some(ink) = ink {
             if let Some(mask) = font.glyph_mask(ch) {
+                let (dx, dy) = font.glyph_offset(ch);
+                let (x, y) = (x + dx, y + dy);
                 let clip = self.visible_rect(Rect::new(x, y, mask.w, mask.h));
                 if clip.is_empty() {
                     return Ok(());
@@ -2046,6 +2041,10 @@ where
             }
             FontId::Dynamic(dyn_font) => {
                 let mut draw_err = Ok(());
+                let (x, y) = {
+                    let (ox, oy) = dyn_font.glyph_offset(ch);
+                    (x + ox, y + oy)
+                };
                 dyn_font.draw_glyph(ch, &mut |dx, dy| {
                     if draw_err.is_ok() {
                         if let Err(e) = self.pixel(x + dx, y + dy, color, opacity) {
@@ -2644,13 +2643,19 @@ fn in_rounded_rect(x: i32, y: i32, rect: Rect, radius: u8) -> bool {
     dx * dx + dy * dy <= radius * radius
 }
 
-fn line_len_at(text: &str, start: usize, max_chars: usize, wrap: TextWrap) -> (usize, bool) {
+/// Chars on the line starting at char `start` that fit in `max_w` px (at least
+/// one), and whether it ended on a newline. Width counts per-glyph advances
+/// and font kerning, so a fixed-advance font wraps at `max_w / advance` chars.
+fn line_len_at(
+    text: &str,
+    start: usize,
+    max_w: u32,
+    font: FontId,
+    wrap: TextWrap,
+) -> (usize, bool) {
     let mut len = 0;
-    let limit = match wrap {
-        TextWrap::None => usize::MAX,
-        TextWrap::Character => max_chars.max(1),
-        TextWrap::Word => max_chars.max(1),
-    };
+    let mut width = 0i32;
+    let mut prev = None;
     let mut last_ws_break = None;
 
     for ch in text.chars().skip(start) {
@@ -2660,7 +2665,10 @@ fn line_len_at(text: &str, start: usize, max_chars: usize, wrap: TextWrap) -> (u
         if matches!(wrap, TextWrap::Word) && ch.is_whitespace() {
             last_ws_break = Some(len + 1);
         }
-        if len >= limit {
+        let next = width
+            .saturating_add(font.kern(prev, ch))
+            .saturating_add(font.glyph_advance(ch) as i32);
+        if wrap != TextWrap::None && len > 0 && next > max_w as i32 {
             if matches!(wrap, TextWrap::Word) {
                 if let Some(idx) = last_ws_break {
                     return (idx, false);
@@ -2668,13 +2676,15 @@ fn line_len_at(text: &str, start: usize, max_chars: usize, wrap: TextWrap) -> (u
             }
             return (len, false);
         }
+        width = next;
+        prev = Some(ch);
         len += 1;
     }
 
     (len, false)
 }
 
-fn count_lines(text: &str, max_chars: usize, wrap: TextWrap) -> usize {
+fn count_lines(text: &str, max_w: u32, font: FontId, wrap: TextWrap) -> usize {
     if text.is_empty() {
         return 1;
     }
@@ -2682,7 +2692,7 @@ fn count_lines(text: &str, max_chars: usize, wrap: TextWrap) -> usize {
     let mut lines = 0;
     let mut start = 0;
     while start < char_count {
-        let (len, consumed_newline) = line_len_at(text, start, max_chars, wrap);
+        let (len, consumed_newline) = line_len_at(text, start, max_w, font, wrap);
         lines += 1;
         start += len + usize::from(consumed_newline);
         if len == 0 && !consumed_newline {
@@ -2692,13 +2702,23 @@ fn count_lines(text: &str, max_chars: usize, wrap: TextWrap) -> usize {
     lines
 }
 
-fn widest_line(text: &str, max_chars: usize, wrap: TextWrap) -> usize {
+/// Width in px of the widest wrapped line.
+fn widest_line(text: &str, max_w: u32, font: FontId, wrap: TextWrap) -> u32 {
     let char_count = text.chars().count();
     let mut widest = 0;
     let mut start = 0;
     while start < char_count {
-        let (len, consumed_newline) = line_len_at(text, start, max_chars, wrap);
-        widest = widest.max(len);
+        let (len, consumed_newline) = line_len_at(text, start, max_w, font, wrap);
+        let mut line = text.chars().skip(start).take(len);
+        let mut width = 0i32;
+        let mut prev = None;
+        for ch in line.by_ref() {
+            width = width
+                .saturating_add(font.kern(prev, ch))
+                .saturating_add(font.glyph_advance(ch) as i32);
+            prev = Some(ch);
+        }
+        widest = widest.max(width.max(0) as u32);
         start += len + usize::from(consumed_newline);
         if len == 0 && !consumed_newline {
             break;

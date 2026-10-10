@@ -22,6 +22,22 @@ pub trait Font: Send + Sync {
     fn glyph_mask(&self, _ch: char) -> Option<crate::render::Mask<'static>> {
         None
     }
+
+    /// Pen advance after `ch`, in pixels (proportional fonts).
+    fn glyph_advance(&self, _ch: char) -> u32 {
+        self.advance()
+    }
+
+    /// Pair kerning in pixels, added to the pen before drawing `next`.
+    fn kern(&self, _prev: char, _next: char) -> i32 {
+        0
+    }
+
+    /// Top-left of `ch`'s mask relative to the pen position and the line top
+    /// (for masks cropped to their ink bounds).
+    fn glyph_offset(&self, _ch: char) -> (i32, i32) {
+        (0, 0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -483,6 +499,48 @@ impl FontId {
             Self::Dynamic(font) => font.glyph_mask(ch),
             _ => None,
         }
+    }
+
+    /// Pen advance after `ch` (the fixed advance except for dynamic fonts).
+    #[inline]
+    pub fn glyph_advance(self, ch: char) -> u32 {
+        match self {
+            Self::Dynamic(font) => font.glyph_advance(ch),
+            _ => self.advance(),
+        }
+    }
+
+    /// Pair kerning added to the pen before drawing `next` (0 except for
+    /// dynamic fonts that provide pairs).
+    #[inline]
+    pub fn kern(self, prev: Option<char>, next: char) -> i32 {
+        match (self, prev) {
+            (Self::Dynamic(font), Some(prev)) => font.kern(prev, next),
+            _ => 0,
+        }
+    }
+
+    /// Mask offset from the pen position and line top.
+    #[inline]
+    pub fn glyph_offset(self, ch: char) -> (i32, i32) {
+        match self {
+            Self::Dynamic(font) => font.glyph_offset(ch),
+            _ => (0, 0),
+        }
+    }
+
+    /// Width of `text` on one line: per-glyph advances plus pair kerning
+    /// (`'\n'` is skipped).
+    pub fn text_width(self, text: &str) -> u32 {
+        let mut width = 0i32;
+        let mut prev = None;
+        for ch in text.chars().filter(|&ch| ch != '\n') {
+            width = width
+                .saturating_add(self.kern(prev, ch))
+                .saturating_add(self.glyph_advance(ch) as i32);
+            prev = Some(ch);
+        }
+        width.max(0) as u32
     }
 
     pub fn advance(self) -> u32 {
