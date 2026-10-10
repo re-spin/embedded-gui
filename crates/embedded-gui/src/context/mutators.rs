@@ -1723,6 +1723,11 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
             let parent_node = self.node(parent_id)?;
             rect.x += parent_node.rect.x;
             rect.y += parent_node.rect.y;
+            // A ScrollView's children sit in its content, scrolled by offset_y.
+            #[cfg(feature = "rich-widgets")]
+            if let WidgetKind::ScrollView { offset_y, .. } = parent_node.kind {
+                rect.y -= offset_y;
+            }
             parent = parent_node.parent;
             depth += 1;
         }

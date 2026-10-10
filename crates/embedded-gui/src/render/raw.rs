@@ -927,4 +927,119 @@ mod tests {
         }
         assert!(draw(true, Rect::new(0, 0, 24, 6)).iter().any(|p| *p != 0));
     }
+
+    /// Fills 3 px past its rect on every side, so any missing clip shows.
+    struct Solid;
+    impl crate::widget::CustomWidget for Solid {
+        fn render(
+            &self,
+            c: &mut dyn crate::widget::CustomCanvas,
+            r: Rect,
+            _: &crate::style::WidgetStyle,
+            _: crate::style::VisualState,
+        ) -> Result<(), crate::GuiError> {
+            c.fill_rect(
+                Rect::new(r.x - 3, r.y - 3, r.w + 6, r.h + 6),
+                Rgb565::new(31, 0, 0),
+            )
+        }
+    }
+    static SOLID: Solid = Solid;
+    const RED: u16 = 0x7c00;
+
+    type Tree = crate::GuiContext<'static, 8, 4, 4>;
+
+    /// A 40x20 black backdrop, so damage repaints stale pixels.
+    fn tree() -> Tree {
+        let mut g = Tree::new(Rect::new(0, 0, 40, 20));
+        g.add_panel(
+            Rect::new(0, 0, 40, 20),
+            crate::style::Style::new().with_background(Some(Rgb565::new(0, 0, 0))),
+        )
+        .unwrap();
+        g
+    }
+
+    fn red_rect(px: &[u16]) -> Option<Rect> {
+        let pts: vec::Vec<(i32, i32)> = (0..20)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .filter(|(x, y)| px[(*y * 40 + *x) as usize] == RED)
+            .collect();
+        let (x0, y0) = pts
+            .iter()
+            .fold((99, 99), |a, p| (a.0.min(p.0), a.1.min(p.1)));
+        let (x1, y1) = pts
+            .iter()
+            .fold((-1, -1), |a, p| (a.0.max(p.0), a.1.max(p.1)));
+        // Solid, so the count must match the bounding box.
+        let r = Rect::new(x0, y0, (x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
+        (!pts.is_empty() && pts.len() == (r.w * r.h) as usize).then_some(r)
+    }
+
+    #[test]
+    fn custom_children_follow_parent_moves_with_damage() {
+        let mut g = tree();
+        let parent = g
+            .add_panel(Rect::new(2, 2, 10, 10), crate::style::Style::new())
+            .unwrap();
+        let child = g
+            .add_custom_widget(Rect::new(1, 1, 4, 4), &SOLID, crate::style::Style::new())
+            .unwrap();
+        g.add_child(parent, child).unwrap();
+        let mut px = vec![0u16; 40 * 20];
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(3, 3, 4, 4)));
+        g.clear_dirty();
+        g.set_widget_rect(parent, Rect::new(20, 5, 10, 10)).unwrap();
+        g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(21, 6, 4, 4)));
+    }
+
+    #[test]
+    fn clip_children_clips_custom_children() {
+        let mut g = tree();
+        // A child hanging off the parent's bottom-right corner.
+        let parent = g
+            .add_panel(Rect::new(2, 2, 10, 10), crate::style::Style::new())
+            .unwrap();
+        let child = g
+            .add_custom_widget(Rect::new(6, 6, 8, 8), &SOLID, crate::style::Style::new())
+            .unwrap();
+        g.add_child(parent, child).unwrap();
+        let mut px = vec![0u16; 40 * 20];
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(8, 8, 4, 4)));
+        // Without CLIP_CHILDREN the child keeps only its own rect.
+        g.set_flag(parent, crate::widget::WidgetFlags::CLIP_CHILDREN, false)
+            .unwrap();
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(8, 8, 8, 8)));
+    }
+
+    #[cfg(feature = "rich-widgets")]
+    #[test]
+    fn scroll_view_offsets_and_clips_custom_children() {
+        let mut g = tree();
+        let view = g
+            .add_scroll_view(Rect::new(2, 2, 20, 10), 0, 40, crate::style::Style::new())
+            .unwrap();
+        let child = g
+            .add_custom_widget(Rect::new(0, 4, 4, 4), &SOLID, crate::style::Style::new())
+            .unwrap();
+        g.add_child(view, child).unwrap();
+        let mut px = vec![0u16; 40 * 20];
+        g.render_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(2, 6, 4, 4)));
+        // Scrolled 6 down: the child moves up 6 and is cut at the view top.
+        g.clear_dirty();
+        g.set_scroll_offset(view, 6).unwrap();
+        g.render_dirty_with::<_, Direct>(&mut Rgb555Surface::new(&mut px, 40, 20))
+            .unwrap();
+        assert_eq!(red_rect(&px), Some(Rect::new(2, 2, 4, 2)));
+    }
 }
