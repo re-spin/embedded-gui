@@ -243,6 +243,33 @@ impl CustomWidget for BigIndexed {
     }
 }
 
+/// A glyph-like A4 mask: mostly empty, a solid core, a one-pixel AA edge.
+static GLYPH4: [u8; IW * IW / 2] = {
+    let mut a = [0u8; IW * IW / 2];
+    let mut i = 0;
+    while i < IW * IW {
+        let d = d2(i);
+        let v: u8 = if d < 14 * 14 { 15 } else if d < 18 * 18 { ((18 * 18 - d) * 15 / (18 * 18 - 14 * 14)) as u8 } else { 0 };
+        a[i / 2] |= if i % 2 == 0 { v << 4 } else { v };
+        i += 1;
+    }
+    a
+};
+
+/// 20 glyph-like A4 masks in a row of two lines (text-heavy cost).
+pub struct A4Text;
+
+impl CustomWidget for A4Text {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let (w, h) = (IW as u32, IW as u32);
+        let m = RawImage::Mask(Mask { w, h, stride: IW / 2, format: MaskFormat::A4, data: &GLYPH4 });
+        for i in 0..20 {
+            c.draw_raw_image(r.x + 22 * (i % 10), r.y + 26 * (i / 10), &m, rgb(0x202020))?;
+        }
+        Ok(())
+    }
+}
+
 impl CustomWidget for Icons {
     fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
         let (w, h) = (IW as u32, IW as u32);
@@ -407,6 +434,13 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     // The six raw images alone (no background): blit cost.
     let g = Gui::init_in_place(slot, view);
     g.add_custom_widget(Rect::new(44, 60, 6 * 28, IW as u32), &Icons, st(None, WHITE, SMALL, pad(0, 0)))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Ref, px);
+    // 20 glyph-like A4 masks over a light pane (dark AA text on light).
+    let g = Gui::init_in_place(slot, view);
+    g.add_panel(Rect::new(40, 50, 240, 60), st(Some(rgb(0xe8e8e8)), BLACK, SMALL, pad(0, 0)))?;
+    g.add_custom_widget(Rect::new(40, 50, 240, 60), &A4Text, st(None, WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Ref, px);

@@ -376,6 +376,48 @@ pub fn indexed_row(row: &mut [u16], src: &[u8], lut: &[u16; 256], transparent: O
     }
 }
 
+/// One A4 mask row from column `sx` (high nibble first) tinted onto `row`.
+/// A byte at a time: 0x00 skips two pixels, 0xFF stores two, anything else
+/// blends its nibbles.
+#[inline(never)]
+fn a4_row(row: &mut [u16], src: &[u8], sx: usize, tint: u16) {
+    let px = |d: &mut u16, a: u8| match a {
+        0 => {}
+        15 => *d = tint,
+        a => *d = blend555(*d, tint, a as u32 * 17),
+    };
+    let mut row = row;
+    // An odd start column takes the low nibble of its byte alone.
+    if sx & 1 == 1 {
+        if let (Some((d, rest)), Some(b)) = (row.split_first_mut(), src.get(sx >> 1)) {
+            px(d, b & 15);
+            row = rest;
+        }
+    }
+    let bytes = src.get(sx.div_ceil(2)..).unwrap_or_default();
+    let used = row.len() / 2;
+    let mut pairs = row.chunks_exact_mut(2);
+    for (d, b) in (&mut pairs).zip(bytes) {
+        if let [d0, d1] = d {
+            match *b {
+                0x00 => {}
+                0xff => {
+                    *d0 = tint;
+                    *d1 = tint;
+                }
+                b => {
+                    px(d0, b >> 4);
+                    px(d1, b & 15);
+                }
+            }
+        }
+    }
+    // An odd pixel count ends on a high nibble.
+    if let ([d], Some(b)) = (pairs.into_remainder(), bytes.get(used)) {
+        px(d, b >> 4);
+    }
+}
+
 impl OriginDimensions for Rgb555Surface<'_> {
     fn size(&self) -> Size {
         Size::new(self.w, self.h)
@@ -574,11 +616,7 @@ impl RawTarget for Rgb555Surface<'_> {
                         let Some(src) = m.data.get(line..line + m.stride) else {
                             return;
                         };
-                        for (i, d) in self.row(py, c.x, c.right()).iter_mut().enumerate() {
-                            let col = sx + i;
-                            let b = src.get(col >> 1).copied().unwrap_or(0) as u32;
-                            put(d, (b >> (4 - 4 * (col as u32 & 1)) & 15) * 17);
-                        }
+                        a4_row(self.row(py, c.x, c.right()), src, sx, tint as u16);
                     }
                 }
             }
@@ -816,6 +854,50 @@ mod tests {
                 }
                 assert_eq!(out[0], out[1], "{transparent:?} x0 {x0}");
             }
+        }
+    }
+
+    #[test]
+    fn a4_rows_match_per_pixel_reference() {
+        // 21 px wide (odd), runs of 0x00/0xff and partials, clipped at every
+        // left offset so rows start on both nibbles and all byte alignments.
+        let data: [u8; 11 * 3] = core::array::from_fn(|i| match (i % 11, i % 7) {
+            (10, _) => 0x8f, // the odd last pixel's byte: nibbles differ
+            (_, 0..=3) => 0x00,
+            (_, 4) => 0xff,
+            (_, 5) => 0x8f,
+            _ => 0x31,
+        });
+        let m = Mask {
+            w: 21,
+            h: 3,
+            stride: 11,
+            format: MaskFormat::A4,
+            data: &data,
+        };
+        let tint = Rgb565::new(31, 0, 0);
+        for x0 in 0..8 {
+            let clip = Rect::new(x0, 0, 30 - x0 as u32, 3);
+            let mut got = vec![0x1234u16; 30 * 3];
+            let mut s = Rgb555Surface::new(&mut got, 30, 3);
+            RenderCtx::<_, Direct>::with_compositor(&mut s, clip, None)
+                .draw_raw_image(2, 0, &RawImage::Mask(m), tint)
+                .unwrap();
+            let mut want = vec![0x1234u16; 30 * 3];
+            let t = to555(tint);
+            for y in 0..3u32 {
+                for x in 0..21u32 {
+                    let (px, i) = (x as i32 + 2, (y * 30) as usize + x as usize + 2);
+                    if px >= x0 {
+                        want[i] = match m.alpha(x, y) {
+                            0 => want[i],
+                            255 => t,
+                            a => blend555(want[i], t, a as u32),
+                        };
+                    }
+                }
+            }
+            assert_eq!(got, want, "x0 {x0}");
         }
     }
 
