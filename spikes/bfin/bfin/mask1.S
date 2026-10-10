@@ -17,9 +17,14 @@
    Blank rows are skipped, and a row loops only from its first set bit to
    its last (clz(x) = SIGNBITS(x >> 1) for a nonzero x below 2^31 after the
    shift).  Rows are the outer hardware loop; a blank row jumps to its last
-   instruction.  ROT through CC hands over one bit per pixel, so a pixel is a load
-   issued with the rotate, a conditional move and a store: 3 cycles.  Writes
-   R0-R3, P0-P2, LC0/1, LT0/1, LB0/1, CC; saves R4-R7, P3-P5.  */
+   instruction.  ROT through CC hands over one bit per pixel; the pixel loop
+   is software-pipelined, so a pixel is a conditional move and one
+   multi-issue of the next rotate, its store and the next pixel's load
+   (through I0, one pixel ahead): 2 cycles.  The last pixel of a span is
+   always set and is a plain store, so no load goes past it.  The
+   multi-issue stores R0 as it was before the parallel load writes R0.L
+   (the simulator agrees: frames match the host).  Writes R0-R3,
+   P0-P2, I0, LC0/1, LT0/1, LB0/1, CC; saves R4-R7, P3-P5.  */
 	.section .text.spike_mask1_rows,"ax",@progbits
 	.align 4
 	.global _spike_mask1_rows
@@ -62,14 +67,21 @@ _spike_mask1_rows:
 	R3 += 1;
 	R1 = LSHIFT R1 BY R0.L;
 	P0 = R0;
-	LC0 = R3;
+	R3 += -1;
+	CC = R3 == 0;
 	P0 = P5 + (P0 << 1);
+	IF CC JUMP .Llast;
+	LC0 = R3;
+	I0 = P0;
+	R1 = ROT R1 BY 1 || R0 = W[P0] (Z) || NOP;
+	I0 += 2;
 	LSETUP (.Lp0, .Lp1) LC0;
 .Lp0:
-	R1 = ROT R1 BY 1 || R0 = W[P0] (Z) || NOP;
 	IF CC R0 = R2;
 .Lp1:
-	W[P0++] = R0;
+	R1 = ROT R1 BY 1 || R0.L = W[I0++] || W[P0++] = R0;
+.Llast:
+	W[P0] = R2;
 .Lnext:
 	P5 = P5 + P3;
 	(R7:4, P5:3) = [SP++];

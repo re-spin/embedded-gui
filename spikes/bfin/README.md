@@ -77,6 +77,7 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | | full-screen panel / detail wave 480x90 | 78.7k / 541k | 59.7k / 393k |
 | | browse full / player full | 635k / 992k | 571k / 953k |
 | `bfin/index.S` keyed-255 row: all-255 words skip 4 px | 400x90 indexed8, 70% transparent (255) | 306k | 235k |
+| `mask1.S` pixel loop software-pipelined (2 cycles/px); wrapper without 64-bit checks | A1 16x16 glyph | 1.50k | 1.39k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 
