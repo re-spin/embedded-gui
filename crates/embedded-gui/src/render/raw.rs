@@ -361,8 +361,20 @@ impl RawTarget for Rgb555Surface<'_> {
         let r = self.bounded(rect);
         // ponytail: below 8 px a call to the row fill costs more than the stores.
         if r.w < 8 {
-            for y in r.y..r.bottom() {
-                self.row(y, r.x, r.right()).fill(px as u16);
+            // One bounds check for the area; each chunk starts at the rect's left edge.
+            let (stride, n) = (self.w as usize, r.w as usize);
+            let first = r.y as usize * stride + r.x as usize;
+            let last = (r.bottom() as usize - 1) * stride + r.right() as usize;
+            let Some(area) = self.px.get_mut(first..last) else {
+                return;
+            };
+            let (h, ptr) = (r.h as usize, area.as_mut_ptr());
+            for row in 0..h {
+                for col in 0..n {
+                    // SAFETY: area.len() == (h - 1) * stride + n, so every
+                    // row * stride + col < area.len() (row < h, col < n).
+                    unsafe { *ptr.add(row * stride + col) = px as u16 };
+                }
             }
             return;
         }
