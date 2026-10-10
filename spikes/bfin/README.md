@@ -80,6 +80,7 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | `mask1.S` pixel loop software-pipelined (2 cycles/px); wrapper without 64-bit checks | A1 16x16 glyph | 1.50k | 1.39k |
 | `index.S`: words with no 255 take a branch-free lookup path; keyed words out of line | 400x90 indexed8, ~1% 255 (firmware loop: 307k) | 384k est. (2276941) | 278k |
 | | 400x90, 70% 255 in mostly mixed words (worst case) | 235k | 374k |
+| `index.S` back to the sprite loop (4d0ec62's plain path reverted) | 70% 255 / ~1% 255 | 374k / 278k | 235k / 363k |
 | `CustomCanvas::draw_masks` (one call for a run of glyphs) | A1 16x16 glyph, 40 in a run | 1.39k | 1.22k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
