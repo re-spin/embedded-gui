@@ -82,7 +82,7 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | | 400x90, 70% 255 in mostly mixed words (worst case) | 235k | 374k |
 | `index.S` back to the sprite loop (4d0ec62's plain path reverted) | 70% 255 / ~1% 255 | 374k / 278k | 235k / 363k |
 | `CustomCanvas::draw_masks` (one call for a run of glyphs) | A1 16x16 glyph, 40 in a run | 1.39k | 1.22k |
-| `masks` down to the target + `mask1_batch` hook + `_spike_mask1_batch` | A1 16x16 glyph, 40 in a run | 1.22k | 1.08k |
+| `masks` down to the target + `mask1_batch` hook + `_spike_mask1_batch` | A1 16x16 glyph, 40 in a run | 1.22k | 1.03k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

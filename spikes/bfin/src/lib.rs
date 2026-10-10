@@ -822,7 +822,8 @@ mod firmware {
     /// so the order does not matter).
     pub fn mask1_batch(px: &mut [u16], stride: usize, clip: Rect, masks: &[(i32, i32, Mask<'_>)], ink: u16) {
         const N: usize = 16;
-        let mut args = [None::<Mask1Args>; N].map(|_| core::mem::MaybeUninit::<Mask1Args>::uninit());
+        // A const block: `[None; N].map(..)` builds and copies ~640 bytes a call on codegen_gcc.
+        let mut args = [const { core::mem::MaybeUninit::<Mask1Args>::uninit() }; N];
         let mut n = 0;
         for (x, y, m) in masks {
             let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
