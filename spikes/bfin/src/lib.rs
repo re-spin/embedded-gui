@@ -836,6 +836,7 @@ mod firmware {
         h: u32,
         ink: u32,
         src2: *const u8,
+        narrow: u32,
     }
 
     /// The crate's mask1_rows in assembly for blocks up to 16 px wide (one
@@ -899,17 +900,20 @@ mod firmware {
             ok.then_some((skip as u32, src, two))
         };
         let (skip, src, two) = fits()?;
+        // One source byte and at least 2 px: mask1.S's fixed-width row.
+        let narrow = two == 0 && sub.w >= 2;
         Some(Mask1Args {
             dst: unsafe { px.as_mut_ptr().add(at) },
             dstep: 2 * stride,
             src: unsafe { mask.data.as_ptr().add(src) },
             sstep: mask.stride,
-            shift: 16 + skip,
+            shift: if narrow { 24 + skip } else { 16 + skip },
             keep: u32::MAX << (32 - sub.w),
             w: sub.w,
             h: sub.h,
             ink: ink as u32,
             src2: unsafe { mask.data.as_ptr().add(src + two) },
+            narrow: if narrow { sub.w - 1 } else { 0 },
         })
     }
 

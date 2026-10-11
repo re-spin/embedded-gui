@@ -3,7 +3,7 @@
    firmware::mask1_rows) bounds-checks the block and hands over:
 
    _spike_mask1_batch(const struct Mask1Args *a, unsigned n) draws n such
-   blocks (n >= 1, consecutive 40-byte structs) with the registers saved
+   blocks (n >= 1, consecutive 44-byte structs) with the registers saved
    once: a run of glyphs in one call.
 
      0  u16 *dst      top-left pixel
@@ -17,6 +17,8 @@
     24  u32  w        pixels a row, >= 1
     28  u32  h        rows, >= 1
     32  u32  ink
+    40  u32  narrow   w - 1 for a one-byte block (skip + w <= 8, w >= 2),
+                      with shift = 24 + skip and no keep or src2; else 0
 
    Blank rows are skipped, and a row loops only from its first set bit to
    its last (clz(x) = SIGNBITS(x >> 1) for a nonzero x below 2^31 after the
@@ -30,8 +32,41 @@
    (the simulator agrees: frames match the host).  Writes R0-R3,
    P0-P2, I0, LC0/1, LT0/1, LB0/1, CC (the batch also I1, M1);
    saves R4-R7, P3-P5.  */
-/* One block: P2 = its Mask1Args.  */
+/* One block: P2 = its Mask1Args.  A narrow block (one source byte a row,
+   2..8 px) falls through to a fixed-width row: no first/last search, no
+   second byte, ~10 + 2w cycles a row.  */
 	.macro MASK1_BLOCK
+	R3 = [P2 + 40];
+	CC = R3 == 0;
+	IF CC JUMP .Lwide\@;
+	P5 = [P2];
+	P3 = [P2 + 4];
+	P1 = [P2 + 8];
+	P4 = [P2 + 12];
+	R5 = [P2 + 16];
+	R4 = [P2 + 28];
+	R2 = [P2 + 32];
+	P2 = R3;
+	LC1 = R4;
+	LSETUP (.Lnrow\@, .Lnend\@) LC1;
+.Lnrow\@:
+	P0 = P5;
+	I0 = P5;
+	R1 = B[P1] (Z);
+	P1 = P1 + P4;
+	R1 = LSHIFT R1 BY R5.L;
+	R1 = ROT R1 BY 1 || R0.L = W[I0++] || NOP;
+	LSETUP (.Ln0\@, .Ln1\@) LC0 = P2;
+.Ln0\@:
+	IF CC R0 = R2;
+.Ln1\@:
+	R1 = ROT R1 BY 1 || R0.L = W[I0++] || W[P0++] = R0;
+	IF CC R0 = R2;
+	W[P0] = R0;
+.Lnend\@:
+	P5 = P5 + P3;
+	JUMP .Ldone\@;
+.Lwide\@:
 	P5 = [P2];
 	P3 = [P2 + 4];
 	P1 = [P2 + 8];
@@ -84,6 +119,7 @@
 	W[P0] = R2;
 .Lnext\@:
 	P5 = P5 + P3;
+.Ldone\@:
 	.endm
 
 	.section .text.spike_mask1_rows,"ax",@progbits
@@ -104,7 +140,7 @@ _spike_mask1_batch:
 	[--SP] = (R7:4, P5:3);
 	I1 = R0;
 	R7 = R1;
-	R0 = 40;
+	R0 = 44;
 	M1 = R0;
 .Lblock:
 	P2 = I1;
