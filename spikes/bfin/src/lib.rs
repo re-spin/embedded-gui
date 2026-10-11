@@ -433,6 +433,29 @@ impl CustomWidget for FillProbe {
     }
 }
 
+/// A 7x10 A1 glyph (an 'a'-like bowl, about half ink), one byte a row:
+/// respin-ui's Latin text size.
+static GLYPH7: [u8; 10] = [0x7c, 0xfe, 0x06, 0x7e, 0xfe, 0xc6, 0xc6, 0xfe, 0x7e, 0x00];
+
+/// 60 7x10 glyphs, advance 8, in rows of 28, through `draw_masks`.
+pub struct SmallText;
+
+impl CustomWidget for SmallText {
+    fn render(&self, c: &mut dyn CustomCanvas, r: Rect, _: &WidgetStyle, _: VisualState) -> Result<(), GuiError> {
+        let m = Mask { w: 7, h: 10, stride: 1, format: MaskFormat::A1, data: &GLYPH7 };
+        let mut run = [(0, 0, m); 60];
+        let (mut x, mut y) = (r.x, r.y);
+        for g in run.iter_mut() {
+            *g = (x, y, m);
+            x += 8;
+            if x + 7 > r.right() {
+                (x, y) = (r.x, y + 12);
+            }
+        }
+        c.draw_masks(&run, WHITE)
+    }
+}
+
 /// [`A1Text`]'s 40 glyphs in one `draw_masks` call.
 pub struct A1TextBatch;
 
@@ -733,6 +756,13 @@ pub fn run(px: &mut [u16], slot: &mut MaybeUninit<Gui>, mark: &mut impl FnMut(Ma
     // The same 40 glyphs through one draw_masks call.
     let g = Gui::init_in_place(slot, view);
     g.add_custom_widget(Rect::new(8, 50, 226, 36), &A1TextBatch, st(None, WHITE, SMALL, pad(0, 0)))?;
+    mark(Mark::Build, px);
+    full(g, px);
+    mark(Mark::Frame, px);
+
+    // 60 small 7x10 glyphs through one draw_masks (minus the empty widget).
+    let g = Gui::init_in_place(slot, view);
+    g.add_custom_widget(Rect::new(8, 50, 226, 36), &SmallText, st(None, WHITE, SMALL, pad(0, 0)))?;
     mark(Mark::Build, px);
     full(g, px);
     mark(Mark::Frame, px);

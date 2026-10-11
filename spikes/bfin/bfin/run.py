@@ -55,6 +55,7 @@ LABELS = ["browse: build", "browse: full frame", "browse: 1 row text (render_dir
           "ref: build probe 16x16", "ref: 50 fill_rect 16x16 (render)",
           "ref: build probe 480x1", "ref: 50 fill_rect 480x1 (render)",
           "ref: build A1 batch", "ref: 40 A1 glyphs 16x16, one draw_masks (render)",
+          "ref: build small text", "ref: 60 A1 glyphs 7x10, one draw_masks (render)",
           "ref: build same label, no text",
           "ref: same label, no text (render)"]
 GLYPHS = 21  # glyphs in the ref row label
@@ -179,7 +180,7 @@ def main():
     if sim.returncode:
         sys.exit(f"simulator exit {sim.returncode}: {sim.stderr.decode(errors='replace')[-2000:]}")
     raw = sim.stdout
-    nframes = 15  # Frame and Dirty marks
+    nframes = 16  # Frame and Dirty marks
     for i in range(nframes):
         (OUT / f"frame{i:02}.x1rgb555").write_bytes(raw[i * FB:(i + 1) * FB])
     words = struct.unpack_from(f"<{(len(raw) - nframes * FB) // 4}I", raw, nframes * FB)
@@ -249,6 +250,8 @@ def main():
            for k in ("1x1", "16x16", "480x1")},
         "a1_glyph_batch": (cyc["ref: 40 A1 glyphs 16x16, one draw_masks (render)"]
                            - cyc["ref: A1 text widget, no glyphs (render)"]) // 40,
+        "a1_small_batch": (cyc["ref: 60 A1 glyphs 7x10, one draw_masks (render)"]
+                           - cyc["ref: A1 text widget, no glyphs (render)"]) // 60,
         "raw_fill": cyc["ref: raw fill 480x234 (no embedded-gui)"],
         "panel": cyc["ref: 1 full-screen panel (render)"],
         "per_glyph": (cyc["ref: 1 row label, 21 glyphs 9x18 (render)"] - cyc["ref: same label, no text (render)"]) // GLYPHS,
