@@ -84,6 +84,7 @@ Second batch for respin-ui (2026-10-10), same gates, O2:
 | `CustomCanvas::draw_masks` (one call for a run of glyphs) | A1 16x16 glyph, 40 in a run | 1.39k | 1.22k |
 | `masks` down to the target + `mask1_batch` hook + `_spike_mask1_batch` | A1 16x16 glyph, 40 in a run | 1.22k | 1.03k |
 | `mask1.S` fixed-width row for one-byte blocks (2-8 px) | A1 7x10 glyph, 60 in a run / 16x16 | 701 / 1.03k | 548 / 1.05k |
+| `mask1_batch`: clip checked once, static scratch (no 704-byte memset a call) | A1 7x10 / 16x16 glyph in a run | 548 / 1.05k | 519 / 1.03k |
 
 ³ With `_cdj_gui_memmove` as `move_px`; the default memmove gives 462k.
 

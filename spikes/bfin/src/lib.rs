@@ -786,6 +786,7 @@ fn dirty(g: &mut Gui, px: &mut [u16]) {
 
 #[cfg(target_os = "none")]
 mod firmware {
+    use core::mem::MaybeUninit;
     use embedded_gui::{Mask, MaskFormat, Rect};
 
     unsafe extern "C" {
@@ -850,25 +851,56 @@ mod firmware {
 
     /// The crate's mask1_batch: blocks that fit bfin/mask1.S go 16 to a
     /// _spike_mask1_batch call; others take the crate's mask1_rows (one ink,
-    /// so the order does not matter).
+    /// so the order does not matter). The clip is checked once (every block
+    /// inside it is then inside `px`); each mask's data per glyph.
     pub fn mask1_batch(px: &mut [u16], stride: usize, clip: Rect, masks: &[(i32, i32, Mask<'_>)], ink: u16) {
         const N: usize = 16;
-        // A const block: `[None; N].map(..)` builds and copies ~640 bytes a call on codegen_gcc.
-        let mut args = [const { core::mem::MaybeUninit::<Mask1Args>::uninit() }; N];
+        // ponytail: one GUI task, so one scratch table; a stack array is
+        // memset (704 bytes) on every call under codegen_gcc.
+        static mut ARGS: [MaybeUninit<Mask1Args>; N] = [const { MaybeUninit::uninit() }; N];
+        let (cr, cb) = (clip.right(), clip.bottom());
+        let inside = clip.x >= 0 && clip.y >= 0 && stride < 0x8000 && cb < 0x8000 && cr as usize <= stride
+            && (cb as usize) * stride <= px.len();
+        if !inside {
+            return embedded_gui::render::raw::mask1_batch(px, stride, clip, masks, ink);
+        }
+        let (base, ink) = (px.as_mut_ptr(), ink as u32);
+        let args = unsafe { &mut *(&raw mut ARGS) };
         let mut n = 0;
         for (x, y, m) in masks {
             let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
             if c.is_empty() {
                 continue;
             }
+            let (skip, top, w) = ((c.x - x) as u32, (c.y - y) as usize, c.w);
             let at = c.y as usize * stride + c.x as usize;
-            let sub = Rect::new(c.x - x, c.y - y, c.w, c.h);
-            let Some(a) = mask1_args(px, at, stride, m, sub, ink) else {
-                embedded_gui::render::raw::mask1_rows(px, at, stride, m, sub, ink);
+            let two = usize::from(skip + w > 8);
+            // m.h and m.stride below 2^15 keep the source end under 2^31.
+            let src = top * m.stride;
+            let fits = m.format == MaskFormat::A1
+                && skip + w <= 16
+                && (m.h as usize | m.stride) < 0x8000
+                && src + (c.h as usize - 1) * m.stride + 1 + two <= m.data.len();
+            if !fits {
+                let sub = Rect::new(c.x - x, c.y - y, c.w, c.h);
+                embedded_gui::render::raw::mask1_rows(px, at, stride, m, sub, ink as u16);
                 continue;
-            };
+            }
+            let narrow = two == 0 && w >= 2;
             if let Some(slot) = args.get_mut(n) {
-                slot.write(a);
+                slot.write(Mask1Args {
+                    dst: base.wrapping_add(at),
+                    dstep: 2 * stride,
+                    src: m.data.as_ptr().wrapping_add(src),
+                    sstep: m.stride,
+                    shift: if narrow { 24 + skip } else { 16 + skip },
+                    keep: u32::MAX << (32 - w),
+                    w,
+                    h: c.h,
+                    ink,
+                    src2: m.data.as_ptr().wrapping_add(src + two),
+                    narrow: if narrow { w - 1 } else { 0 },
+                });
                 n += 1;
             }
             if n == N {
