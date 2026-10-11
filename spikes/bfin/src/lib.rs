@@ -800,8 +800,8 @@ mod firmware {
         fn spike_index_key_row(dst: *mut u16, src: *const u8, n: usize, lut: *const u16);
         /// bfin/mask1.S: an A1 mask block up to 16 px wide.
         fn spike_mask1_rows(a: *const Mask1Args);
-        /// bfin/mask1.S: `n` such blocks, registers saved once.
-        fn spike_mask1_batch(a: *const Mask1Args, n: usize);
+        /// bfin/mask1.S: `n` glyphs, clipped and set up in assembly.
+        fn spike_mask1_glyphs(r: *const GlyphRun, n: usize);
         /// copy.S: memcpy, words when dst and src share alignment mod 4.
         fn cdj_gui_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8;
         /// copy.S: memmove; backwards only when dst lies inside the source.
@@ -849,67 +849,74 @@ mod firmware {
         }
     }
 
-    /// The crate's mask1_batch: blocks that fit bfin/mask1.S go 16 to a
-    /// _spike_mask1_batch call; others take the crate's mask1_rows (one ink,
-    /// so the order does not matter). The clip is checked once (every block
-    /// inside it is then inside `px`); each mask's data per glyph.
+    /// What _spike_mask1_glyphs takes (see bfin/mask1.S).
+    #[repr(C)]
+    struct GlyphRun {
+        px: *mut u16,
+        stride: usize,
+        cx: i32,
+        cy: i32,
+        cr: i32,
+        cb: i32,
+        ink: u32,
+        g: *const Glyph,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Glyph {
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        sstep: usize,
+        data: *const u8,
+    }
+
+    /// The crate's mask1_batch with the clipping and block setup in
+    /// bfin/mask1.S: the clip is checked once, each mask's data here (so no
+    /// block leaves px or its mask), and up to 32 glyphs go to one
+    /// _spike_mask1_glyphs call. Masks that don't fit take the crate's.
     pub fn mask1_batch(px: &mut [u16], stride: usize, clip: Rect, masks: &[(i32, i32, Mask<'_>)], ink: u16) {
-        const N: usize = 16;
-        // ponytail: one GUI task, so one scratch table; a stack array is
-        // memset (704 bytes) on every call under codegen_gcc.
-        static mut ARGS: [MaybeUninit<Mask1Args>; N] = [const { MaybeUninit::uninit() }; N];
+        const N: usize = 32;
+        // ponytail: one GUI task, so one scratch table; a stack array of
+        // MaybeUninit is memset on every call under codegen_gcc.
+        static mut GLYPHS: [MaybeUninit<Glyph>; N] = [const { MaybeUninit::uninit() }; N];
         let (cr, cb) = (clip.right(), clip.bottom());
         let inside = clip.x >= 0 && clip.y >= 0 && stride < 0x8000 && cb < 0x8000 && cr as usize <= stride
             && (cb as usize) * stride <= px.len();
-        if !inside {
+        if !inside || clip.is_empty() {
             return embedded_gui::render::raw::mask1_batch(px, stride, clip, masks, ink);
         }
-        let (base, ink) = (px.as_mut_ptr(), ink as u32);
-        let args = unsafe { &mut *(&raw mut ARGS) };
+        let glyphs = unsafe { &mut *(&raw mut GLYPHS) };
+        let mut run = GlyphRun { px: px.as_mut_ptr(), stride, cx: clip.x, cy: clip.y, cr, cb, ink: ink as u32, g: glyphs.as_ptr().cast() };
         let mut n = 0;
-        for (x, y, m) in masks {
-            let c = clip.intersection(Rect::new(*x, *y, m.w, m.h));
-            if c.is_empty() {
-                continue;
-            }
-            let (skip, top, w) = ((c.x - x) as u32, (c.y - y) as usize, c.w);
-            let at = c.y as usize * stride + c.x as usize;
-            let two = usize::from(skip + w > 8);
-            // m.h and m.stride below 2^15 keep the source end under 2^31.
-            let src = top * m.stride;
+        for (i, (x, y, m)) in masks.iter().enumerate() {
+            let near = |v: i32| (v as u32).wrapping_add(0x4000_0000) < 0x8000_0000;
             let fits = m.format == MaskFormat::A1
-                && skip + w <= 16
+                && m.w.wrapping_sub(1) < 16
+                && m.h != 0
                 && (m.h as usize | m.stride) < 0x8000
-                && src + (c.h as usize - 1) * m.stride + 1 + two <= m.data.len();
+                && near(*x)
+                && near(*y)
+                && (m.h as usize - 1) * m.stride + 1 + usize::from(m.w > 8) <= m.data.len();
             if !fits {
-                let sub = Rect::new(c.x - x, c.y - y, c.w, c.h);
-                embedded_gui::render::raw::mask1_rows(px, at, stride, m, sub, ink as u16);
+                let one = masks.get(i..=i).unwrap_or_default();
+                embedded_gui::render::raw::mask1_batch(px, stride, clip, one, ink);
+                run.px = px.as_mut_ptr();
                 continue;
             }
-            let narrow = two == 0 && w >= 2;
-            if let Some(slot) = args.get_mut(n) {
-                slot.write(Mask1Args {
-                    dst: base.wrapping_add(at),
-                    dstep: 2 * stride,
-                    src: m.data.as_ptr().wrapping_add(src),
-                    sstep: m.stride,
-                    shift: if narrow { 24 + skip } else { 16 + skip },
-                    keep: u32::MAX << (32 - w),
-                    w,
-                    h: c.h,
-                    ink,
-                    src2: m.data.as_ptr().wrapping_add(src + two),
-                    narrow: if narrow { w - 1 } else { 0 },
-                });
+            if let Some(slot) = glyphs.get_mut(n) {
+                slot.write(Glyph { x: *x, y: *y, w: m.w, h: m.h, sstep: m.stride, data: m.data.as_ptr() });
                 n += 1;
             }
             if n == N {
-                unsafe { spike_mask1_batch(args.as_ptr().cast(), n) };
+                unsafe { spike_mask1_glyphs(&run, n) };
                 n = 0;
             }
         }
         if n != 0 {
-            unsafe { spike_mask1_batch(args.as_ptr().cast(), n) };
+            unsafe { spike_mask1_glyphs(&run, n) };
         }
     }
 
