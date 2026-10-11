@@ -1275,8 +1275,11 @@ impl Theme {
     pub fn widget_style_for_kind(&self, kind: &crate::widgets::WidgetKind) -> WidgetStyle {
         match kind {
             crate::widgets::WidgetKind::Panel => WidgetStyle::new(self.panel),
+            #[cfg(feature = "widgets")]
             crate::widgets::WidgetKind::Label(_) => WidgetStyle::new(self.label),
+            #[cfg(feature = "widgets")]
             crate::widgets::WidgetKind::Button(_) => WidgetStyle::new(self.button),
+            #[cfg(feature = "widgets")]
             crate::widgets::WidgetKind::ProgressBar { .. } => WidgetStyle::new(self.progress),
             #[cfg(feature = "rich-widgets")]
             crate::widgets::WidgetKind::Toggle { .. } => WidgetStyle::new(self.toggle),

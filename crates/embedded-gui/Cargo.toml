@@ -19,9 +19,12 @@ exclude = [
 ]
 
 [features]
-default = ["std", "rich-widgets", "macros"]
+default = ["std", "widgets", "rich-widgets", "macros"]
 std = ["embedded-dsp?/std"]
-rich-widgets = ["scroll-view"]
+# Built-in renderers beyond Panel/Custom/Border/Spacer (Label, Button,
+# Image, Dial, ...). Off for Custom-only builds that count flash bytes.
+widgets = []
+rich-widgets = ["widgets", "scroll-view"]
 # ScrollView alone, without the other rich widgets' renderers.
 scroll-view = []
 image-decode = ["std"]

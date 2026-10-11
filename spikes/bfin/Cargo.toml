@@ -17,7 +17,7 @@ path = "src/host.rs"
 
 [dependencies]
 # libm: no_std embedded-gui refuses to build without a float math backend.
-embedded-gui = { path = "../../crates/embedded-gui", default-features = false, features = ["libm", "scroll-view"] }
+embedded-gui = { path = "../../crates/embedded-gui", default-features = false, features = ["libm", "scroll-view", "widgets"] }
 embedded-graphics-core = "0.4.1"
 
 [profile.release]

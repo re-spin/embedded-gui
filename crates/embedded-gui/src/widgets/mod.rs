@@ -165,6 +165,7 @@ impl Default for CompositeIconSpec {
     }
 }
 
+#[cfg(feature = "widgets")]
 /// Scales an RGB565 color by `num5/31` on the 5-bit channels and `num6/63` on
 /// green, which keeps the carousel falloff exact at any base color.
 #[inline]
@@ -176,9 +177,11 @@ fn scale_rgb565(color: Rgb565, num5: u16, num6: u16) -> Rgb565 {
     )
 }
 
+#[cfg(feature = "widgets")]
 /// Per-slot brightness falloff, indexed by distance from the selected row.
 const CAROUSEL_FALLOFF: [(u16, u16); 4] = [(31, 63), (12, 24), (6, 12), (3, 6)];
 
+#[cfg(feature = "widgets")]
 #[inline]
 fn carousel_slot_color(text: Rgb565, distance: u32) -> Rgb565 {
     let (n5, n6) = CAROUSEL_FALLOFF[(distance as usize).min(CAROUSEL_FALLOFF.len() - 1)];
@@ -253,8 +256,11 @@ impl<'a> MenuCell<'a> {
 pub enum WidgetKind<'a> {
     Panel,
     Custom(crate::widget::CustomWidgetRef<'a>),
+    #[cfg(feature = "widgets")]
     Label(&'a str),
+    #[cfg(feature = "widgets")]
     Button(&'a str),
+    #[cfg(feature = "widgets")]
     ProgressBar {
         value: f32,
     },
@@ -347,6 +353,7 @@ pub enum WidgetKind<'a> {
         start_deg: i32,
         end_deg: i32,
     },
+    #[cfg(feature = "widgets")]
     /// Countdown/progress sweep: a filled pie-sector that grows clockwise
     /// with `progress` (0.0..=1.0) over a solid background, with a
     /// rounded-rect "window" punched in the middle for a caller-drawn value
@@ -378,6 +385,7 @@ pub enum WidgetKind<'a> {
         show_axes: bool,
         show_labels: bool,
     },
+    #[cfg(feature = "widgets")]
     Plotter {
         values: &'a [f32],
         head: usize,
@@ -387,12 +395,14 @@ pub enum WidgetKind<'a> {
         show_grid: bool,
         show_axes: bool,
     },
+    #[cfg(feature = "widgets")]
     CircularList {
         items: &'a [&'a str],
         selected: usize,
         offset: usize,
         visible_rows: usize,
     },
+    #[cfg(feature = "widgets")]
     Spinner {
         phase: f32,
     },
@@ -460,10 +470,12 @@ pub enum WidgetKind<'a> {
         layout: KeyboardLayout,
         target: Option<WidgetId>,
     },
+    #[cfg(feature = "widgets")]
     Image {
         image: ImageRef<'a>,
         fit: ImageFit,
     },
+    #[cfg(feature = "widgets")]
     /// Vertically scrolling wrap-around list drawn as a single widget so the
     /// slot falloff, edge fade, and chrome masks stay identical between host
     /// preview and firmware.
@@ -472,6 +484,7 @@ pub enum WidgetKind<'a> {
         selected: usize,
         spec: CarouselSpec,
     },
+    #[cfg(feature = "widgets")]
     /// Multi-part 1bpp glyph whose parts are individually toggled and tinted.
     CompositeIcon {
         parts: &'a [IconPart<'a>],
@@ -547,11 +560,13 @@ pub enum WidgetKind<'a> {
         visible_rows: usize,
         expanded: bool,
     },
+    #[cfg(feature = "widgets")]
     Dial {
         value: f32,
         min: f32,
         max: f32,
     },
+    #[cfg(feature = "widgets")]
     RlePlayer {
         rle_data: &'static [u8],
         frame_width: u16,
@@ -561,6 +576,7 @@ pub enum WidgetKind<'a> {
         elapsed_ms: u32,
         frame_duration_ms: u32,
     },
+    #[cfg(feature = "widgets")]
     AutoComplete {
         text_buf: [u8; 32],
         text_len: u8,
@@ -613,7 +629,11 @@ impl WidgetKind<'_> {
         ) {
             return true;
         }
-        matches!(self, Self::Button { .. } | Self::RlePlayer { .. })
+        #[cfg(feature = "widgets")]
+        if matches!(self, Self::Button { .. } | Self::RlePlayer { .. }) {
+            return true;
+        }
+        false
     }
 }
 
@@ -672,6 +692,7 @@ impl<'a> WidgetNode<'a> {
 
     pub fn get_property(&self, key: PropertyKey) -> Option<PropertyValue<'a>> {
         match (key, &self.kind) {
+            #[cfg(feature = "widgets")]
             (PropertyKey::Value, WidgetKind::ProgressBar { value })
             | (PropertyKey::Progress, WidgetKind::ProgressBar { value }) => {
                 Some(PropertyValue::Float(*value))
@@ -684,7 +705,9 @@ impl<'a> WidgetNode<'a> {
             (PropertyKey::Min, WidgetKind::Slider { min, .. }) => Some(PropertyValue::Float(*min)),
             #[cfg(feature = "rich-widgets")]
             (PropertyKey::Max, WidgetKind::Slider { max, .. }) => Some(PropertyValue::Float(*max)),
+            #[cfg(feature = "widgets")]
             (PropertyKey::Text, WidgetKind::Label(text)) => Some(PropertyValue::Str(text)),
+            #[cfg(feature = "widgets")]
             (PropertyKey::Text, WidgetKind::Button(text)) => Some(PropertyValue::Str(text)),
             #[cfg(feature = "rich-widgets")]
             (PropertyKey::State, WidgetKind::Toggle { on, .. }) => Some(PropertyValue::Bool(*on)),
@@ -714,6 +737,7 @@ impl<'a> WidgetNode<'a> {
         val: PropertyValue<'a>,
     ) -> Result<(), PropertyError> {
         match (key, &mut self.kind, val) {
+            #[cfg(feature = "widgets")]
             (
                 PropertyKey::Value | PropertyKey::Progress,
                 WidgetKind::ProgressBar { value },
@@ -731,10 +755,12 @@ impl<'a> WidgetNode<'a> {
                 *value = v.clamp(*min, *max);
                 Ok(())
             }
+            #[cfg(feature = "widgets")]
             (PropertyKey::Text, WidgetKind::Label(text), PropertyValue::Str(s)) => {
                 *text = s;
                 Ok(())
             }
+            #[cfg(feature = "widgets")]
             (PropertyKey::Text, WidgetKind::Button(text), PropertyValue::Str(s)) => {
                 *text = s;
                 Ok(())
@@ -846,6 +872,7 @@ impl<'a> WidgetNode<'a> {
                 Ok(())
             }
             WidgetKind::Panel => render_panel(ctx, rect, style, state),
+            #[cfg(feature = "widgets")]
             WidgetKind::Label(text) => {
                 let overflow = if self.flags.contains(WidgetFlags::WHOLE_GLYPHS) {
                     crate::render::TextOverflow::WholeGlyphs
@@ -854,7 +881,9 @@ impl<'a> WidgetNode<'a> {
                 };
                 render_label(ctx, rect, text, style, overflow)
             }
+            #[cfg(feature = "widgets")]
             WidgetKind::Button(text) => render_button(ctx, rect, text, style, state),
+            #[cfg(feature = "widgets")]
             WidgetKind::ProgressBar { value } => render_progress(ctx, rect, value, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Toggle { label, on } => render_toggle(ctx, rect, label, on, style, state),
@@ -890,6 +919,7 @@ impl<'a> WidgetNode<'a> {
                 style,
                 state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::CircularList {
                 items,
                 selected,
@@ -985,6 +1015,7 @@ impl<'a> WidgetNode<'a> {
                 start_deg,
                 end_deg,
             } => render_gauge_needle(ctx, rect, value, min, max, start_deg, end_deg, style, state),
+            #[cfg(feature = "widgets")]
             WidgetKind::SweepingArc {
                 progress,
                 clockwise,
@@ -1034,6 +1065,7 @@ impl<'a> WidgetNode<'a> {
                 style,
                 state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::Plotter {
                 values,
                 head,
@@ -1045,6 +1077,7 @@ impl<'a> WidgetNode<'a> {
             } => render_plotter(
                 ctx, rect, values, head, min, max, thickness, show_grid, show_axes, style, state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::Spinner { phase } => render_spinner(ctx, rect, phase, style, state),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Dropdown {
@@ -1155,12 +1188,15 @@ impl<'a> WidgetNode<'a> {
             } => render_keyboard(
                 ctx, rect, keys, selected, cols, alt_keys, layout, style, state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::Image { image, fit } => render_image(ctx, rect, image, fit, style, state),
+            #[cfg(feature = "widgets")]
             WidgetKind::Carousel {
                 items,
                 selected,
                 spec,
             } => render_carousel(ctx, rect, items, selected, &spec, style, state),
+            #[cfg(feature = "widgets")]
             WidgetKind::CompositeIcon { parts, spec } => {
                 render_composite_icon(ctx, rect, parts, &spec, style, state)
             }
@@ -1259,9 +1295,11 @@ impl<'a> WidgetNode<'a> {
                 style,
                 state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::Dial { value, min, max } => {
                 render_dial(ctx, rect, value, min, max, style, state)
             }
+            #[cfg(feature = "widgets")]
             WidgetKind::RlePlayer {
                 rle_data,
                 frame_width,
@@ -1278,6 +1316,7 @@ impl<'a> WidgetNode<'a> {
                 style,
                 state,
             ),
+            #[cfg(feature = "widgets")]
             WidgetKind::AutoComplete {
                 text_buf,
                 text_len,
@@ -1332,6 +1371,7 @@ where
     Block::styled(style).render(rect, ctx)
 }
 
+#[cfg(feature = "widgets")]
 fn render_label<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -1356,6 +1396,7 @@ where
     )
 }
 
+#[cfg(feature = "widgets")]
 fn render_button<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -1380,6 +1421,7 @@ where
     )
 }
 
+#[cfg(feature = "widgets")]
 fn render_progress<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -1520,6 +1562,7 @@ where
     ctx.fill_rect(Rect::new(knob_x, track_y - 2, 3, 5), style.accent)
 }
 
+#[cfg(feature = "widgets")]
 fn render_dial<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -1567,6 +1610,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 fn render_rle_player<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
@@ -1666,6 +1710,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 fn render_autocomplete<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
@@ -1889,6 +1934,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 #[allow(clippy::too_many_arguments)]
 fn render_circular_list<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
@@ -2241,6 +2287,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 #[allow(clippy::too_many_arguments)]
 fn render_sweeping_arc<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
@@ -2510,6 +2557,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 #[allow(clippy::too_many_arguments)]
 fn render_plotter<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
@@ -2595,6 +2643,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 fn render_spinner<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -3233,6 +3282,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 fn render_image<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -3251,6 +3301,7 @@ where
     ctx.draw_image(block.inner(rect), image, fit)
 }
 
+#[cfg(feature = "widgets")]
 fn render_carousel<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,
@@ -3361,6 +3412,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "widgets")]
 fn render_composite_icon<D, C>(
     ctx: &mut RenderCtx<'_, D, C>,
     rect: Rect,

@@ -80,11 +80,13 @@ impl<'a, 'ctx, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.column(builder)
     }
 
+    #[cfg(feature = "widgets")]
     /// Spawns a themed label widget.
     pub fn label(&mut self, text: &'a str) -> Result<WidgetId, GuiError> {
         self.ctx.add_themed_label(self.bounds, text)
     }
 
+    #[cfg(feature = "widgets")]
     /// Spawns a styled label widget.
     pub fn styled_label(
         &mut self,
@@ -94,6 +96,7 @@ impl<'a, 'ctx, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.ctx.add_label(self.bounds, text, style)
     }
 
+    #[cfg(feature = "widgets")]
     /// Spawns a themed button widget.
     pub fn button(&mut self, text: &'a str) -> Result<WidgetId, GuiError> {
         self.ctx.add_themed_button(self.bounds, text)
@@ -297,11 +300,13 @@ impl<'a, 'ctx, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self
     }
 
+    #[cfg(feature = "widgets")]
     /// Fluent child helper: directly appends a themed label without an inner closure.
     pub fn child_label(self, text: &'a str) -> Result<Self, GuiError> {
         self.child(|c| c.label(text))
     }
 
+    #[cfg(feature = "widgets")]
     /// Fluent child helper: directly appends a themed button without an inner closure.
     pub fn child_button(self, text: &'a str) -> Result<Self, GuiError> {
         self.child(|c| c.button(text))

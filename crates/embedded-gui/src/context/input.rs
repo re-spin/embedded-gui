@@ -321,6 +321,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.tick_state_transitions(dt_ms)?;
         self.tick_theme_transition(dt_ms)?;
         self.haptic_sequencer.tick(dt_ms);
+        #[cfg(feature = "widgets")]
         self.tick_rle_animations(dt_ms)?;
         #[cfg(feature = "scroll-view")]
         if let Some(mut inertia) = self.inertia_scroll {
@@ -540,11 +541,15 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         let pad_x = style.padding.left.max(0) as u32 + style.padding.right.max(0) as u32;
         let pad_y = style.padding.top.max(0) as u32 + style.padding.bottom.max(0) as u32;
         let border = style.border.width as u32 * 2;
+        #[allow(unused_variables)]
         let text_width = |text: &str| style.font.text_width(text);
+        #[allow(unused_variables)]
         let text_height = style.font.line_height();
 
         let content = match node.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::Label(text) => (text_width(text), text_height),
+            #[cfg(feature = "widgets")]
             WidgetKind::Button(text) => (text_width(text).saturating_add(6), text_height),
             #[cfg(feature = "rich-widgets")]
             WidgetKind::Toggle { label, .. } => (text_width(label).saturating_add(12), text_height),
@@ -1097,6 +1102,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                     *offset = state.offset_y;
                     changed_rect = changed.then_some(node.rect);
                 }
+                #[cfg(feature = "widgets")]
                 WidgetKind::AutoComplete {
                     filtered: _,
                     filter_count,
@@ -1191,6 +1197,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
                     }
                     changed_rect = changed.then_some(node.rect);
                 }
+                #[cfg(feature = "widgets")]
                 WidgetKind::Dial {
                     value: ref mut current,
                     min,
@@ -1312,6 +1319,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
 
         if let Some(id) = hit {
             self.dispatch_activation(id, true)?;
+            #[cfg(feature = "widgets")]
             self.update_dial_value_at_pointer(id, x, y)?;
             self.pressed = Some(PressTracker {
                 id,
@@ -1384,6 +1392,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         let Some(mut pressed) = self.pressed else {
             return Ok(());
         };
+        #[cfg(feature = "widgets")]
         self.update_dial_value_at_pointer(pressed.id, x, y)?;
         #[allow(unused_variables)]
         let dy = y - pressed.last_y;
@@ -1438,11 +1447,11 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         id: WidgetId,
         is_pointer: bool,
     ) -> Result<(), GuiError> {
-        let is_autocomplete = matches!(
+        #[cfg(feature = "widgets")]
+        if matches!(
             self.node(id).map(|n| &n.kind),
             Some(WidgetKind::AutoComplete { .. })
-        );
-        if is_autocomplete {
+        ) {
             self.autocomplete_confirm_selection(id)?;
             return Ok(());
         }
@@ -1512,12 +1521,17 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     }
 
     pub(crate) fn repeatable_widget(&self, id: WidgetId) -> bool {
+        #[allow(unused_variables)]
         self.node(id).is_some_and(|node| {
             #[cfg(feature = "rich-widgets")]
             if matches!(node.kind, WidgetKind::IconButton { .. }) {
                 return true;
             }
-            matches!(node.kind, WidgetKind::Button(_))
+            #[cfg(feature = "widgets")]
+            if matches!(node.kind, WidgetKind::Button(_)) {
+                return true;
+            }
+            false
         })
     }
 
@@ -1968,6 +1982,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.push_event(UiEvent::Back)
     }
 
+    #[cfg(feature = "widgets")]
     pub(crate) fn update_dial_value_at_pointer(
         &mut self,
         id: WidgetId,
@@ -2004,6 +2019,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    #[cfg(feature = "widgets")]
     pub(crate) fn tick_rle_animations(&mut self, dt_ms: u32) -> Result<(), GuiError> {
         let mut dirty_rects = heapless::Vec::<Rect, NODES>::new();
         for node in self.widgets.iter_mut() {

@@ -1,4 +1,5 @@
 #[cfg(not(feature = "std"))]
+#[allow(dead_code)]
 pub trait F32Ext {
     fn atan2(self, other: f32) -> f32;
     fn sin(self) -> f32;

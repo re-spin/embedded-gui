@@ -136,6 +136,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_panel(rect, self.theme.panel)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_label<S>(
         &mut self,
         rect: impl Into<Rect>,
@@ -148,6 +149,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_widget(rect, WidgetKind::Label(text), style)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_label(
         &mut self,
         rect: impl Into<Rect>,
@@ -156,6 +158,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_label(rect, text, self.theme.label)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_button<S>(
         &mut self,
         rect: impl Into<Rect>,
@@ -170,6 +173,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_button(
         &mut self,
         rect: impl Into<Rect>,
@@ -404,6 +408,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_list(rect, items, selected, visible_rows, self.theme.list)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_circular_list<S>(
         &mut self,
         rect: Rect,
@@ -430,6 +435,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_circular_list(
         &mut self,
         rect: Rect,
@@ -639,6 +645,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     #[allow(clippy::too_many_arguments)]
     pub fn add_sweeping_arc<S>(
         &mut self,
@@ -730,6 +737,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_plotter<S>(
         &mut self,
         rect: Rect,
@@ -757,6 +765,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_plotter(
         &mut self,
         rect: Rect,
@@ -1131,6 +1140,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_image<S>(
         &mut self,
         rect: Rect,
@@ -1144,6 +1154,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_widget(rect, WidgetKind::Image { image, fit }, style)
     }
 
+    #[cfg(feature = "widgets")]
     /// Adds a wrap-around carousel. Drive `spec.shift` and `selected` from the
     /// caller's animation clock to scroll it.
     pub fn add_carousel<S>(
@@ -1168,6 +1179,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     /// Adds a multi-part 1bpp icon whose parts are toggled and tinted per state.
     pub fn add_composite_icon<S>(
         &mut self,
@@ -1401,6 +1413,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_dial<S>(
         &mut self,
         rect: Rect,
@@ -1418,6 +1431,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_dial(
         &mut self,
         rect: Rect,
@@ -1428,6 +1442,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         self.add_dial(rect, value, min, max, self.theme.button)
     }
 
+    #[cfg(feature = "widgets")]
     #[allow(clippy::too_many_arguments)]
     pub fn add_rle_player<S>(
         &mut self,
@@ -1457,6 +1472,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_rle_player(
         &mut self,
         rect: Rect,
@@ -1477,6 +1493,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         )
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_autocomplete_widget<S>(
         &mut self,
         rect: Rect,
@@ -1503,6 +1520,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(id)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn add_themed_autocomplete(
         &mut self,
         rect: Rect,

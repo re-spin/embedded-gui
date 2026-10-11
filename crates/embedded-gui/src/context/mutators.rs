@@ -42,6 +42,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     pub fn set_text(&mut self, id: WidgetId, text: &'a str) -> Result<(), GuiError> {
         self.set_widget_property(id, PropertyKey::Text, PropertyValue::Str(text))
     }
+    #[cfg(feature = "widgets")]
     pub fn set_progress(&mut self, id: WidgetId, value: f32) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -72,6 +73,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     /// Moves the carousel selection, clamping to the item count. The selection
     /// is what the falloff and indicator center on, so this is the primary
     /// per-step call from a menu's navigation code.
@@ -92,6 +94,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     pub fn carousel_selected(&self, id: WidgetId) -> Option<usize> {
         match self.node(id)?.kind {
             WidgetKind::Carousel { selected, .. } => Some(selected),
@@ -99,6 +102,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     /// Sets the in-flight scroll offset in whole pixels. Drive this from an
     /// animation clock between steps and snap it back to `0` once the selection
     /// changes; a shift of 4 moves every row exactly 4px.
@@ -115,6 +119,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     /// Scales the indicator's accent color (0..=255), which is where a breathing
     /// highlight comes from.
     pub fn set_carousel_pulse(&mut self, id: WidgetId, pulse: u8) -> Result<(), GuiError> {
@@ -130,6 +135,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     /// Replaces the carousel's item slice.
     ///
     /// Items are borrowed (`&'a`), so a caller that needs to change label text
@@ -157,6 +163,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     /// Replaces a composite icon's part slice.
     ///
     /// `include_gui!` bakes parts into a `static [IconPart; N]`, which cannot be
@@ -509,6 +516,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     pub fn set_plotter_head(&mut self, id: WidgetId, head: usize) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -529,6 +537,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
         match node.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::Plotter {
                 values: ref mut v, ..
             } => {
@@ -831,6 +840,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
         match node.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::Spinner { phase: ref mut v } => {
                 *v = phase;
                 self.dirty.add(rect)?;
@@ -848,6 +858,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         cycles_per_sec: f32,
     ) -> Result<(), GuiError> {
         let phase = match self.node(id).ok_or(GuiError::NotFound)?.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::Spinner { phase } => phase + (dt_ms as f32 / 1000.0) * cycles_per_sec,
             _ => return Err(GuiError::NotFound),
         };
@@ -2062,6 +2073,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(laid_out)
     }
 
+    #[cfg(feature = "widgets")]
     pub fn set_dial_value(&mut self, id: WidgetId, value: f32) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -2081,6 +2093,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
 
     pub fn dial_value(&self, id: WidgetId) -> Option<f32> {
         match self.node(id)?.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::Dial { value, .. } => Some(value),
             _ => None,
         }
@@ -2088,6 +2101,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
 
     pub fn autocomplete_text(&self, id: WidgetId) -> Option<&str> {
         match &self.node(id)?.kind {
+            #[cfg(feature = "widgets")]
             WidgetKind::AutoComplete {
                 text_buf, text_len, ..
             } => core::str::from_utf8(&text_buf[..*text_len as usize]).ok(),
@@ -2095,6 +2109,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         }
     }
 
+    #[cfg(feature = "widgets")]
     pub fn set_autocomplete_text(&mut self, id: WidgetId, text: &str) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -2120,6 +2135,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    #[cfg(feature = "widgets")]
     pub fn insert_autocomplete_char(&mut self, id: WidgetId, ch: char) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -2148,6 +2164,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    #[cfg(feature = "widgets")]
     pub fn delete_autocomplete_char(&mut self, id: WidgetId) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -2175,6 +2192,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
         Ok(())
     }
 
+    #[cfg(feature = "widgets")]
     pub fn autocomplete_confirm_selection(&mut self, id: WidgetId) -> Result<(), GuiError> {
         let rect = self.absolute_rect(id).ok_or(GuiError::NotFound)?;
         let node = self.node_mut(id).ok_or(GuiError::NotFound)?;
@@ -2208,6 +2226,7 @@ impl<'a, const NODES: usize, const EVENTS: usize, const DIRTY: usize>
     }
 }
 
+#[cfg(feature = "widgets")]
 fn contains_ignore_ascii_case(s: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
@@ -2225,6 +2244,7 @@ fn contains_ignore_ascii_case(s: &str, needle: &str) -> bool {
     })
 }
 
+#[cfg(feature = "widgets")]
 fn filter_suggestions<'a>(
     text: &str,
     suggestions: &'a [&'a str],

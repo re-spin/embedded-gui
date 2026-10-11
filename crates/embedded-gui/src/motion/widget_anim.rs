@@ -1102,6 +1102,7 @@ impl<const TRACKS: usize, const BINDINGS: usize> WidgetAnimator<TRACKS, BINDINGS
             }
 
             match binding.property {
+                #[cfg(feature = "widgets")]
                 AnimatedProperty::Progress => gui.set_progress(binding.widget_id, value)?,
                 #[cfg(feature = "rich-widgets")]
                 AnimatedProperty::Meter => gui.set_meter_value(binding.widget_id, value)?,
