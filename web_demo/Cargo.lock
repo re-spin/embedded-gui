@@ -70,9 +70,9 @@ dependencies = [
 
 [[package]]
 name = "embedded-dsp"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c3038494bcff2cb0cd80781dcb34354a47bb4500cc02a31844b1c49dcc536e7"
+checksum = "fa411cded869787af6c2e98c51d907f1fb5ccd2ac5ff7e06f930fff88834feb6"
 dependencies = [
  "libm",
 ]
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "embedded-gui"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "critical-section",
  "embedded-draw-target",
